@@ -26,7 +26,7 @@ In an ideal world, every programmable endpoint would have a nanoprobe running on
 Liveness of systems is determined by the exchange of heartbeat packets.
 It is intended that nanoprobes be as simple as possible, and do little or nothing on their own.
 
-# How does a nanoprobe work?
+# How do nanoprobes work?
 Nanoprobes, except during initialization, do only what they've been told to do by the CMA.
 Many of the actions required for discovery operations require high levels of privileges. 
 Nanoprobes must ensure that they are operating at the lowest level of privilege necessary to perform the task at hand.
