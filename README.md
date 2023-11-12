@@ -3,6 +3,8 @@ The Assimilation project creates a continually updated and very detailed map (CM
 of system and network configuration in a way that scales better than any other known system.
 This information is sufficiently detailed to determine if systems are misconfigured, contain
 hacked software, or are configured in violation of best practices (security or other).
+To the degree possible, this is performed with near-zero manual configuration,
+as manual configuration is eventually incorrect (often sooner than later).
 
 # What are the downsides of the Assimilation Project?
 The Assimilation project requires active agents on most programmable network endpoints (i.e., servers).
