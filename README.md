@@ -39,7 +39,7 @@ Such a map would be extremely valuable to an adversary.
 ## During Initialization
 During initialization, it sends out a single (reliable) packet to announce that it is now alive.
 Depending on local configuration this could be to a multicast address, or a unicast address.
-*It also automatically does some simple and well-known discovery of the local network configuration, I think???*
+*It also automatically does some basic and well-known discovery of the local OS configuration, I think???*
 
 The normal startup sequence for a nanoprobe is as follows:
  1. Nanprobe starts up (main program is activated)
