@@ -116,6 +116,9 @@ Not all of these need to be solved soon, but need to be given good thought over 
  * Discovery in an AWS or Azure environment
  * What about more aggressive discovery of unknown network entities? Nmap? SNMP?
  * What about more automatic installation of nanoprobes?
- * Management of (CMA) secrets
+ * Management of (CMA) secrets (not automatically configured :-))
    * HashiCorp Vault?
+   * AWS secrets?
+   * Azure secrets?
+   * Some combination of these?
    * Other?
