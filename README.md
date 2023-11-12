@@ -21,7 +21,7 @@ This document primarily provides details about nanoprobes.
 # What Is a nanoprobe?
 A nanoprobe is an active agent that is widely distributed across the network
 to monitor liveness of systems in the network, and perform discovery of the configuration
-of the system it is attached to.
+of the system it is attached to, and monitoring of its services.
 In an ideal world, every programmable endpoint would have a nanoprobe running on it.
 Liveness of systems is determined by the exchange of heartbeat packets.
 It is intended that nanoprobes be as simple as possible, and do little or nothing on their own.
@@ -65,6 +65,7 @@ Once a nanoprobe is initialized, it does these things:
  * listens to ARP broadcasts (to discover IP/MAC pairings on network interfaces) and notifies the CMA of changes
  * listens for LLDP packets from switches it is connected to (to discover network topology) and notifies the CMA of changes
  * perform discovery actions on a repetitive timed basis, as requrested by the CMA.
+ * perform monitoring actions on a repetitive timed basis, as requrested by the CMA.
 
 ## Discovery Actions
 Discovery actions produce JSON describing the things that have been discovered.
@@ -122,3 +123,14 @@ Not all of these need to be solved soon, but need to be given good thought over 
    * Azure secrets?
    * Some combination of these?
    * Other?
+
+# Approaches to writing this code in Rust
+I'm just now learning Rust, but the old nanoprobe code in "C" is quite solid, and can serve as a good model,
+But none of it is yet written in Rust.
+Here are the different dimensions that I see I could approach:
+ * A subsystem for secure invocation of discovery agents with specified capabilities
+ * A subsystem for secure invocation of monitoring agents with specified capabilities
+ * The communication (protocol) code. (Reliable, encrypted, signed over UDP)
+ * Heartbeat sending and receiving (over UDP)
+ * Listening to ARP broadcasts
+ * Listening to LLDP broadcasts
