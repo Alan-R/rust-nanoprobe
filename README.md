@@ -154,7 +154,7 @@ Some may answer, just tell it how much memory they need, then they'll not kick e
 Such tuning is fragile, and will eventually be incorrect.
 
 Other points in Rust's favor:
- * In addition, when you talk about things like heartbeats,
+ * When you talk about things like heartbeats,
    the process of garbage collection tends to impair the real-time behavior for such features,
    and getting rid of garbage collection makes the detection of nanoprobe (system) death more reliable.
  * Rust's compile-time checking of storage use and concurrency are also strong points in its favor
