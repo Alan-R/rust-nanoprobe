@@ -124,10 +124,40 @@ Not all of these need to be solved soon, but need to be given good thought over 
    * Some combination of these?
    * Other?
 
+# Why rewrite the nanoprobe - and why Rust?
+The previous "C" code version of the nanoprobe worked well, and it was a reasonable design - so why rewrite it at all?
+The answer is that it never ran on Windows, and that building it to be portable and run on all Linux systems from a
+single binary was a horribly complicated kludge.
+Building separate version for each and every version of Linux was even worse.
+So going to a language like Rust or Go which can cross-compile to many environments would eliminate this complexity
+and build-system-fragility.
+In addition, few people want to work on C code, which isn't a good thing when it comes to looking for developers
+for open source projects.
+
+The nanoprobe is designed to be a very low-profile and consume few resources, and run indefinitely without needing a restart.
+Here are the characteristics which I believe are necessary for such systems:
+ * Compiled (small size, fast execution)
+ * Clear memory management
+ * No memory leaks
+ * No garbage collection
+
+Of the modern languages, only Rust satisfies all these criteria.
+Some may wonder why garbage collection is on the prohibited list.
+The answer to that is that programs in garbage collected languages grow and grow in size until they are garbage collected.
+While they are growing, they kick the operational software out of memory for their own growth,
+impairing the system they are monitoring.
+Some may answer, just tell it how much memory they need, then they'll not kick everything out of memory.
+Such tuning is fragile, and will eventually be incorrect.
+In addition, when you talk about things like heartbeats,
+the process of garbage collection tends to impair the real-time behavior for such features,
+and getting rid of garbage collection makes the detection of nanoprobe (system) death more reliable.
+
+
+
 # Approaches to writing this code in Rust
 I'm just now learning Rust, but the old nanoprobe code in "C" is quite solid, and can serve as a good model,
-But none of it is yet written in Rust.
-Here are the different dimensions that I see I could approach:
+but none of it is yet written in Rust.
+Here are the different dimensions that I see I could as semi-independent development chunks:
  * A subsystem for secure invocation of discovery agents with specified capabilities
  * A subsystem for secure invocation of monitoring agents with specified capabilities
  * The communication (protocol) code. (Reliable, encrypted, signed over UDP)
