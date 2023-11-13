@@ -157,7 +157,7 @@ Other points in Rust's favor:
  * When you talk about things like heartbeats,
    the process of garbage collection tends to impair the real-time behavior for such features,
    and getting rid of garbage collection makes the detection of nanoprobe (system) death more reliable.
- * Rust's compile-time checking of storage use and concurrency are also strong points in its favor
+ * Rust's compile-time checking of storage use and concurrency are strong points in its favor
    when thinking about high-trust systems such as the Assimilation project.
 
 # Approaches to writing this code in Rust
