@@ -152,6 +152,7 @@ While they are growing, they kick the operational software out of memory for the
 impairing the system they are monitoring.
 Some may answer, just tell it how much memory they need, then they'll not kick everything out of memory.
 Such tuning is fragile, and will eventually be incorrect.
+
 Other points in Rust's favor:
  * In addition, when you talk about things like heartbeats,
    the process of garbage collection tends to impair the real-time behavior for such features,
