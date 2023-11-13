@@ -14,9 +14,10 @@ With the Assimilation architecture, even massive scaling can be achieved with mi
 
 # What are the architectural components of the Assimilation software?
 Each Assimilation installation consists of a central Collective Management Authority (CMA)
-and a large number of active agents called nanoprobes
-Nanoprobes act under the direction of the CMA.
-This document primarily provides details about nanoprobes.
+and a large number of active agents called nanoprobes.
+Nanoprobes act strictly under the direction of the CMA.
+This README primarily provides details about nanoprobes, and discussions of how the
+CMA works, and how it uses nanoprobes are outside the scope of this README.
 
 # What Is a nanoprobe?
 A nanoprobe is an active agent that is widely distributed across the network
