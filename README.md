@@ -104,6 +104,7 @@ produce very similar JSON.
 
 # Food for Thought (mostly architectural level issues, mostly not nanoprobe issues)
 Not all of these need to be solved soon, but need to be given good thought over time.
+ * Connect the new code to [OpenTelemetry](https://opentelemetry.io/), in such a way as it can be turned on or off.
  * How to uniquely identify network addresses and system names in the presence of VPNs, VLANs, virtual systems and containers?
  * How to deal with isolated network segments in this complex environment
    * Separate CMAs?
