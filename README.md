@@ -20,7 +20,7 @@ This document primarily provides details about nanoprobes.
 
 # What Is a nanoprobe?
 A nanoprobe is an active agent that is widely distributed across the network
-to monitor liveness of systems in the network, and perform discovery of the configuration
+to monitor liveness of systems in the network, perform discovery of the configuration
 of the system it is attached to, and monitoring of its services.
 In an ideal world, every programmable endpoint would have a nanoprobe running on it.
 Liveness of systems is determined by the exchange of heartbeat packets.
@@ -98,6 +98,9 @@ produce very similar JSON.
  * It is required that a nanoprobe be tolerant of the CMA being temporarily unavailable.
  * The CMA is permitted to assume that anything that a nanoprobe needs to tell it will eventually arrive, unless the nanoprobe restarts (see below).
  * When a nanoprobe restarts, loss of all pending communications is expected.
+ * The current protocol supports sending binary data, which would support proxies (see below) encapsulating and re-signing encrypted data from their clients.
+   It seems likely that this aspect of the current protocol should be retained - and keeping compatability with the existing CMA code
+   has value.
 
 # Food for Thought (mostly architectural level issues, mostly not nanoprobe issues)
 Not all of these need to be solved soon, but need to be given good thought over time.
@@ -148,18 +151,21 @@ While they are growing, they kick the operational software out of memory for the
 impairing the system they are monitoring.
 Some may answer, just tell it how much memory they need, then they'll not kick everything out of memory.
 Such tuning is fragile, and will eventually be incorrect.
-In addition, when you talk about things like heartbeats,
-the process of garbage collection tends to impair the real-time behavior for such features,
-and getting rid of garbage collection makes the detection of nanoprobe (system) death more reliable.
-
-
+Other points in Rust's favor:
+ * In addition, when you talk about things like heartbeats,
+   the process of garbage collection tends to impair the real-time behavior for such features,
+   and getting rid of garbage collection makes the detection of nanoprobe (system) death more reliable.
+ * Rust's compile-time checking of storage use and concurrency are also strong points in its favor
+   when thinking about high-trust systems such as the Assimilation project.
 
 # Approaches to writing this code in Rust
 I'm just now learning Rust, but the old nanoprobe code in "C" is quite solid, and can serve as a good model,
 but none of it is yet written in Rust.
 Here are the different dimensions that I see I could as semi-independent development chunks:
  * A subsystem for secure invocation of discovery agents with specified capabilities
+   (the C-based code doesn't include capability annotations)
  * A subsystem for secure invocation of monitoring agents with specified capabilities
+   (the C-based code doesn't include capability annotations)
  * The communication (protocol) code. (Reliable, encrypted, signed over UDP)
  * Heartbeat sending and receiving (over UDP)
  * Listening to ARP broadcasts
