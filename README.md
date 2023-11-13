@@ -138,7 +138,7 @@ The nanoprobe is designed to be a very low-profile and consume few resources, an
 Here are the characteristics which I believe are necessary for such systems:
  * Compiled (small size, fast execution)
  * Clear memory management
- * No memory leaks
+ * Zero memory leaks
  * No garbage collection
 
 Of the modern languages, only Rust satisfies all these criteria.
