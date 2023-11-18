@@ -22,7 +22,7 @@ CMA works, and how it uses nanoprobes are outside the scope of this README.
 # What Is a nanoprobe?
 A nanoprobe is an active agent that is widely distributed across the network
 to monitor liveness of systems in the network, perform discovery of the configuration
-of the system it is attached to, and monitoring of its services.
+of the system it is attached to, and monitorin its services.
 In an ideal world, every programmable endpoint would have a nanoprobe running on it.
 Liveness of systems is determined by the exchange of heartbeat packets.
 It is intended that nanoprobes be as simple as possible, and do little or nothing on their own.
@@ -45,8 +45,8 @@ Depending on local configuration this could be to a multicast address, or a unic
 The normal startup sequence for a nanoprobe is as follows:
  1. Nanprobe starts up (main program is activated)
  2. Nanprobe sends and "*I've just started*" message to the CMA.
-    This might be to the reserved multicast address for the project, or to a
-    unicast address (if one was configured).
+    This might be to the reserved multicast address for the project,
+    or to a unicast address (if one was configured).
     This message contains local OS version information, and the public key of this
     nanoprobe.
  3. The CMA replies to the nanoprobe (including its "true" unicast IP address),
@@ -58,15 +58,15 @@ The normal startup sequence for a nanoprobe is as follows:
 ## After Initialization
 Once a nanoprobe is initialized, it does these things:
 
- * listens for and acts on messages it receives from the CMA.
+ * Listen for and acts on messages it receives from the CMA.
    These messages tell the nanoprobe where the CMA is located, which discovery actions to perform, 
    what systems to send and expect heartbeats from, and what other things to listen for (as noted below).
  * Listen for heartbeat packets from assigned neighbors, and report lack of heartbeats to the CMA
  * Send heartbeat packets on a timed basis to assigned neighbors
- * listens to ARP broadcasts (to discover IP/MAC pairings on network interfaces) and notifies the CMA of changes
- * listens for LLDP packets from switches it is connected to (to discover network topology) and notifies the CMA of changes
- * perform discovery actions on a repetitive timed basis, as requrested by the CMA.
- * perform monitoring actions on a repetitive timed basis, as requrested by the CMA.
+ * Listen to ARP broadcasts (to discover IP/MAC pairings on network interfaces) and notifies the CMA of changes
+ * Listen for LLDP packets from switches it is connected to (to discover network topology) and notifies the CMA of changes
+ * Perform discovery actions on a repetitive timed basis, as requrested by the CMA.
+ * Perform monitoring actions on a repetitive timed basis, as requrested by the CMA.
 
 ## Discovery Actions
 Discovery actions produce JSON describing the things that have been discovered.
@@ -88,11 +88,11 @@ produce very similar JSON.
 
 ## Virtualized environments
  * In an ideal world, nanoprobes operate at the lowest level available (bare hardware, or virtual machines)
- * Putting nanoprobes into containers is to be avoided. A privileged daemonset is a much better idea.
+ * Putting nanoprobes into all containers is to be avoided. A privileged daemonset is a much better idea.
 
 # About communication
  * All communication between nanoprobes and the CMA is reliable, encrypted and digitally signed with public key encryption.
- * Heartbeats between nanoprobes are unsigned, unencrypted, and unreliable.
+ * Heartbeats between nanoprobes are unsigned, unencrypted, and unreliable UDP packets.í
  * Nanoprobes are *given* the public key of the CMA.
  * The CMA learns of the public keys of nanoprobes when they initialize.
    TOFU (trust on first use) is used to validate nanoprobe keys.
@@ -155,7 +155,7 @@ Some may answer, just tell it how much memory they need, then they'll not kick e
 Such tuning is fragile, and will eventually be incorrect.
 
 Other points in Rust's favor:
- * When you talk about things like heartbeats,
+ * When you talk about heartbeats,
    the process of garbage collection tends to impair the real-time behavior for such features,
    and getting rid of garbage collection makes the detection of nanoprobe (system) death more reliable.
  * Rust's compile-time checking of storage use and concurrency are strong points in its favor
