@@ -331,6 +331,7 @@ impl CommandSpecification {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_cap_list_to_capset_success() {
         let cap_res = cap_list_to_capset(["chown".to_string(), "setuid".to_string()].into_iter());
@@ -342,6 +343,7 @@ mod tests {
         caps.remove(&Capability::CAP_SETUID);
         assert!(caps.is_empty());
     }
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_cap_list_to_capset_fail() {
        let cap_res = cap_list_to_capset(["chown".to_string(), "setfoo".to_string()].into_iter());
@@ -349,6 +351,7 @@ mod tests {
         let err_msg =  cap_res.expect_err("REASON").to_string();
         assert_eq!(err_msg, "caps error: invalid capability: CAP_SETFOO");
     }
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_str_resource_to_resource_limit_success() {
         let s_limit = StrResourceLimit {
@@ -363,6 +366,7 @@ mod tests {
         assert_eq!(limit.hard_limit, 42*2);
         assert_eq!(limit.resource_type, Resource::CPU);
     }
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_str_resource_to_resource_limit_fail_bad_type() {
         let s_limit = StrResourceLimit {
@@ -375,6 +379,7 @@ mod tests {
         let err_msg =  bad_limit.expect_err("REASON").to_string();
         assert_eq!(err_msg, "unknown resource type: RLIMIT_CUP")
     }
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_str_resource_to_resource_limit_fail_bad_limits() {
         let s_limit = StrResourceLimit {
@@ -387,6 +392,7 @@ mod tests {
         let err_msg =  bad_limit.expect_err("REASON").to_string();
         assert_eq!(err_msg, "soft limit 84 larger than hard limit 42 for RLIMIT_CPU")
     }
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_str_resources_to_limits_success() {
         let limits = [
@@ -413,6 +419,7 @@ mod tests {
         assert_eq!(limit_vec[1].hard_limit, 42*42*2);
         assert_eq!(limit_vec[0].resource_type, Resource::CPU);
     }
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_str_resources_to_limits_fail_invalid_resource() {
         let limits = [
@@ -433,6 +440,7 @@ mod tests {
         let err_msg =  err_limit_vec.expect_err("REASON").to_string();
         assert_eq!(err_msg, "unknown resource type: RLIMIT_N0FILE")
     }
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_str_resources_to_limits_fail_invalid_limits() {
         let limits = [
