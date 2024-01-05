@@ -182,7 +182,8 @@ fn str_resource_to_resource_limit<'a>(str_limit: &StrResourceLimit) -> io::Resul
             if resource_type.is_supported() {
                 if str_limit.soft_limit > str_limit.hard_limit {
                     Err(io::Error::new(io::ErrorKind::InvalidInput,
-                                       format!("soft limit {} larger than hard limit", str_limit.soft_limit),
+                                       format!("soft limit {} larger than hard limit {} for {}",
+                                               str_limit.soft_limit, str_limit.hard_limit, str_limit.resource_type),
                     ))
                 } else {
                     Ok(ResourceLimit { resource_type, soft_limit: str_limit.soft_limit, hard_limit: str_limit.hard_limit })
@@ -324,5 +325,132 @@ impl CommandSpecification {
             command = command.set_limits(limits).restrict_caps(requested_caps);
         }
         command.output()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_cap_list_to_capset_success() {
+        let cap_res = cap_list_to_capset(["chown".to_string(), "setuid".to_string()].into_iter());
+        assert!(cap_res.is_ok());
+        let mut caps = cap_res.unwrap();
+        assert!(caps.contains(&Capability::CAP_CHOWN));
+        assert!(caps.contains(&Capability::CAP_SETUID));
+        caps.remove(&Capability::CAP_CHOWN);
+        caps.remove(&Capability::CAP_SETUID);
+        assert!(caps.is_empty());
+    }
+    #[test]
+    fn test_cap_list_to_capset_fail() {
+       let cap_res = cap_list_to_capset(["chown".to_string(), "setfoo".to_string()].into_iter());
+        assert!(cap_res.is_err());
+        let err_msg =  cap_res.expect_err("REASON").to_string();
+        assert_eq!(err_msg, "caps error: invalid capability: CAP_SETFOO");
+    }
+    #[test]
+    fn test_str_resource_to_resource_limit_success() {
+        let s_limit = StrResourceLimit {
+            resource_type: "RLIMIT_CPU".to_string(),
+            soft_limit: 42,
+            hard_limit: 2*42,
+        };
+        let ok_limit = str_resource_to_resource_limit(&s_limit);
+        assert!(ok_limit.is_ok());
+        let limit = ok_limit.unwrap();
+        assert_eq!(limit.soft_limit, 42);
+        assert_eq!(limit.hard_limit, 42*2);
+        assert_eq!(limit.resource_type, Resource::CPU);
+    }
+    #[test]
+    fn test_str_resource_to_resource_limit_fail_bad_type() {
+        let s_limit = StrResourceLimit {
+            resource_type: "RLIMIT_CUP".to_string(),
+            soft_limit: 42,
+            hard_limit: 2*42,
+        };
+        let bad_limit = str_resource_to_resource_limit(&s_limit);
+        assert!(bad_limit.is_err());
+        let err_msg =  bad_limit.expect_err("REASON").to_string();
+        assert_eq!(err_msg, "unknown resource type: RLIMIT_CUP")
+    }
+    #[test]
+    fn test_str_resource_to_resource_limit_fail_bad_limits() {
+        let s_limit = StrResourceLimit {
+            resource_type: "RLIMIT_CPU".to_string(),
+            soft_limit: 2*42,
+            hard_limit: 42,
+        };
+        let bad_limit = str_resource_to_resource_limit(&s_limit);
+        assert!(bad_limit.is_err());
+        let err_msg =  bad_limit.expect_err("REASON").to_string();
+        assert_eq!(err_msg, "soft limit 84 larger than hard limit 42 for RLIMIT_CPU")
+    }
+    #[test]
+    fn test_str_resources_to_limits_success() {
+        let limits = [
+            StrResourceLimit {
+                resource_type: "RLIMIT_CPU".to_string(),
+                soft_limit: 42,
+                hard_limit: 2*42,
+           },
+            StrResourceLimit {
+                resource_type: "RLIMIT_NOFILE".to_string(),
+                soft_limit: 42*42,
+                hard_limit: 2*42*42,
+           }
+        ].to_vec();
+
+        let ok_limit_vec = str_resources_to_limits(limits.into_iter());
+        assert!(ok_limit_vec.is_ok());
+        let limit_vec = ok_limit_vec.unwrap();
+        assert_eq!(limit_vec.len(), 2);
+        assert_eq!(limit_vec[0].soft_limit, 42);
+        assert_eq!(limit_vec[0].hard_limit, 42*2);
+        assert_eq!(limit_vec[1].resource_type, Resource::NOFILE);
+        assert_eq!(limit_vec[1].soft_limit, 42*42);
+        assert_eq!(limit_vec[1].hard_limit, 42*42*2);
+        assert_eq!(limit_vec[0].resource_type, Resource::CPU);
+    }
+    #[test]
+    fn test_str_resources_to_limits_fail_invalid_resource() {
+        let limits = [
+            StrResourceLimit {
+                resource_type: "RLIMIT_CPU".to_string(),
+                soft_limit: 42,
+                hard_limit: 2*42,
+            },
+            StrResourceLimit {
+                resource_type: "RLIMIT_N0FILE".to_string(),
+                soft_limit: 42*42,
+                hard_limit: 2*42*42,
+            }
+        ].to_vec();
+
+        let err_limit_vec = str_resources_to_limits(limits.into_iter());
+        assert!(err_limit_vec.is_err());
+        let err_msg =  err_limit_vec.expect_err("REASON").to_string();
+        assert_eq!(err_msg, "unknown resource type: RLIMIT_N0FILE")
+    }
+    #[test]
+    fn test_str_resources_to_limits_fail_invalid_limits() {
+        let limits = [
+            StrResourceLimit {
+                resource_type: "RLIMIT_CPU".to_string(),
+                soft_limit: 2*42,
+                hard_limit: 42,
+            },
+            StrResourceLimit {
+                resource_type: "RLIMIT_N0FILE".to_string(),
+                soft_limit: 42*42,
+                hard_limit: 2*42*42,
+            }
+        ].to_vec();
+
+        let err_limit_vec = str_resources_to_limits(limits.into_iter());
+        assert!(err_limit_vec.is_err());
+        let err_msg =  err_limit_vec.expect_err("REASON").to_string();
+        assert_eq!(err_msg, "soft limit 84 larger than hard limit 42 for RLIMIT_CPU")
     }
 }
