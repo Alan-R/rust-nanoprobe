@@ -27,6 +27,7 @@ use libc::c_int;
 use rlimit::{getrlimit, Resource, setrlimit};
 #[cfg(target_family = "unix")]
 use users::{get_group_by_name, get_user_by_name, gid_t, uid_t};
+#[cfg(target_family = "unix")]
 
 #[cfg(target_family = "unix")]
 extern "C" {
@@ -58,9 +59,10 @@ fn cap_list_to_capset(cap_list: impl Iterator<Item=String>) -> Result<CapsHashSe
 
 
 #[cfg(target_family = "unix")]
+/// A trait for restricting capabilities on **Command**s being executed.
+/// This code is scheduled to run between fork and exec of Commands, so that those commands
+/// are run with exactly and only the specified capabilities.
 pub trait RestrictCaps {
-    /// A trait for restricting capabilities on Commands being executed
-    /// This code is run between fork and exec of Commands.
     fn restrict_caps<'a>(&mut self, cap_set: CapsHashSet) -> &mut Command;
 }
 
@@ -110,7 +112,17 @@ impl RestrictCaps for Command {
 }
 
 /* UNIX SetUID-related code */
-/// Trait for setting the User Id and group of our child Command
+/// Trait for setting the User Id and group of our child **Command**
+/// This code is scheduled to run between fork and exec of Commands, so that those commands
+/// are run under the given user and group ids.
+/// This trait also sets the **KEEPCAPS** attribute so that any capabilities which
+/// have been set are preserved for the Command being run.
+///
+/// This code only exists because of how the Rust .uid() Command trait operates.
+/// As of this writing, .uid() runs before any of the scheduled *pre_exec* Command
+/// operations are performed. This means you can't set **KEEPCAPS** before changing
+/// user id. Without this implementation, you could change user ids, or you could preserve
+/// capabilities, but not both.
 #[cfg(target_family = "unix")]
 pub trait SetId {
     fn set_id_keep(&mut self, uid: uid_t, gid: gid_t) -> &mut Command;
@@ -232,6 +244,11 @@ fn str_resources_to_limits(limit_list: impl Iterator<Item=StrResourceLimit>) -> 
 
 #[cfg(target_family = "unix")]
 /// Trait to set resource limits on our child Commands
+/// This code is scheduled to run between fork and exec of Commands, so that those commands
+/// are run with these resource limits.
+/// Note that these resource limits should be set before dropping privileges, so that
+/// it's possible to set resources to exceed the system's existing hard limit.
+///
 pub trait SetLimits {
     fn set_limits(&mut self, limits: Vec<ResourceLimit>) -> &mut Command;
 }
@@ -299,6 +316,10 @@ impl CommandSpecification {
         let mut path_binding = Command::new(&*self.program_path);
         let mut command = path_binding.args(self.command_args.clone());
         if cfg!(target_family="unix") {
+            // The order in which we do these operations is important:
+            // 1. set user (and group) id (if present)
+            // 2. set resource limits
+            // 3. set/restrict capabilities.
             let limits = str_resources_to_limits(self.resource_limits.clone().into_iter())?;
             let requested_caps = cap_list_to_capset(self.capabilities.clone().into_iter()).unwrap();
             if self.userid.is_some() {
@@ -332,6 +353,8 @@ impl CommandSpecification {
 // Should these be UNIX-only tests and have a different mod for non-UNIX specific tests?
 mod tests {
     use super::*;
+    #[cfg(target_family = "unix")]
+    use users::{get_current_username, get_current_groupname};
     #[cfg(target_family = "unix")]
     #[test]
     fn test_cap_list_to_capset_success() {
@@ -399,13 +422,13 @@ mod tests {
         let limits = [
             StrResourceLimit {
                 resource_type: "RLIMIT_CPU".to_string(),
-                soft_limit: 42,
                 hard_limit: 2*42,
+                soft_limit: 42,
            },
             StrResourceLimit {
                 resource_type: "RLIMIT_NOFILE".to_string(),
-                soft_limit: 42*42,
                 hard_limit: 2*42*42,
+                soft_limit: 42*42,
            }
         ].to_vec();
 
@@ -461,5 +484,56 @@ mod tests {
         assert!(err_limit_vec.is_err());
         let err_msg =  err_limit_vec.expect_err("REASON").to_string();
         assert_eq!(err_msg, "soft limit 84 larger than hard limit 42 for RLIMIT_CPU")
+    }
+    #[test]
+    /// This test exercises almost all the features at once. The exception is the setgid only path in the code.
+    /// Coverage doesn't include things done in the child process.
+    fn test_run_command_basic() {
+        let path: &str;
+        let args: Vec<String>;
+        if cfg!(target_family = "unix") {
+            path = "/bin/echo";
+            args = ["Hello, world!".to_string()].to_vec();
+        }else{
+            path = "cmd";
+            args = ["/C".to_string(), "echo Hello, world!".to_string()].to_vec();
+        }
+        let limits = [
+            StrResourceLimit {
+                resource_type: "RLIMIT_CPU".to_string(),
+                hard_limit: 2*42,
+                soft_limit: 42,
+            }
+        ].to_vec();
+        let spec = CommandSpecification {
+            program_path: path.to_string(),
+            command_args: args,
+            capabilities: ["chown".to_string()].to_vec(),
+            resource_limits: limits,
+            userid:  {
+                if cfg!(target_family = "unix") {
+                    Some(get_current_username().unwrap().to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            },
+            groupid:  {
+                if cfg!(target_family = "unix") {
+                    Some(get_current_groupname().unwrap().to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            },
+        };
+        let result = spec.run();
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        let hello = std::str::from_utf8(&output.stdout);
+        let hello_err = std::str::from_utf8(&output.stderr);
+        assert!(hello.is_ok());
+        assert!(hello_err.is_ok());
+        assert_eq!(hello.unwrap().trim_end(), "Hello, world!");
+        assert_eq!(hello_err.unwrap().trim_end(), "");
+        assert!(output.status.success())
     }
 }
