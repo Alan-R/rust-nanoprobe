@@ -1,9 +1,15 @@
 [package]
-name = "nanoprobe"
+name = "learning"
 version = "0.1.0"
 edition = "2021"
-authors = "Alan Robertson <alanr@unix.sh>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rand = "0.8.3"
+libc = "0.2.151"
+libsodium-sys = "0.2.7"
+caps = "0.5.5"
+capctl = "0.2.3"
+rlimit = "0.10.1"
+users = "0.11.0"
