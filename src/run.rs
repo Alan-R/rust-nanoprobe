@@ -18,6 +18,8 @@ use std::io;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Output};
 use std::str::FromStr;
+use serde_derive::{Serialize, Deserialize};
+use serde_json::{Result as JsonResult};
 
 #[cfg(target_family = "unix")]
 use caps::{Capability, CapSet, CapsHashSet, securebits::set_keepcaps};
@@ -155,7 +157,7 @@ impl SetId for Command {
 
 /* UNIX resource limit-related code */
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// A representation of resource limits as string-resource names and integer limits
 /// See setrlimit(2) for UNIX (Linux) systems
 pub struct StrResourceLimit {
@@ -271,7 +273,7 @@ impl SetLimits for Command {
 
 /* Code to specify and run commands with capabilities and resource limits */
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// A complete specification of a command and how to run it.
 pub struct CommandSpecification {
     pub program_path: String,
@@ -505,6 +507,49 @@ mod tests {
             },
         };
         let result = spec.run();
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        let hello = std::str::from_utf8(&output.stdout);
+        let hello_err = std::str::from_utf8(&output.stderr);
+        assert!(hello.is_ok());
+        assert!(hello_err.is_ok());
+        assert_eq!(hello.unwrap().trim_end(), "Hello, world!");
+        assert_eq!(hello_err.unwrap().trim_end(), "");
+        assert!(output.status.success())
+    }
+
+    #[test]
+    /// This test exercises JSON parsing.
+    fn test_run_command_basic_json() {
+        let path: &str;
+        let args: &str;
+        if cfg!(target_family = "unix") {
+            path = "/bin/echo";
+            args = r#""Hello, world!""#;
+        }else{
+            path = "cmd";
+            args = r#""/C", "echo Hello, world!""#;
+        }
+        let json_str = format!(r#"
+        {{
+            "program_path": "{}",
+            "command_args": [{}],
+            "capabilities": ["chown"],
+            "resource_limits": [
+            {{
+                "resource_type": "RLIMIT_CPU",
+                "hard_limit": 84,
+                "soft_limit": 42
+            }}
+            ]
+        }}
+        "#, path, args);
+        let spec : JsonResult<CommandSpecification> = serde_json::from_str(&*json_str);
+        assert!(spec.is_ok());
+        let command = spec.unwrap();
+        let json_out = serde_json::to_string(&command);
+        assert!(json_out.is_ok());
+        let result = command.run();
         assert!(result.is_ok());
         let output = result.unwrap();
         let hello = std::str::from_utf8(&output.stdout);
