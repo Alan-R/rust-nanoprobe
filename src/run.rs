@@ -519,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    /// This test exercises JSON parsing.
+    /// This test exercises JSON generation, and parsing.
     fn test_run_command_basic_json() {
         let path: &str;
         let args: &str;
@@ -530,6 +530,7 @@ mod tests {
             path = "cmd";
             args = r#""/C", "echo Hello, world!""#;
         }
+        // It's worth noting that the fields have to be in the same order as the structure for serde_json to work.
         let json_str = format!(r#"
         {{
             "program_path": "{}",
