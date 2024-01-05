@@ -329,6 +329,7 @@ impl CommandSpecification {
 }
 
 #[cfg(test)]
+// Should these be UNIX-only tests and have a different mod for non-UNIX specific tests?
 mod tests {
     use super::*;
     #[cfg(target_family = "unix")]
