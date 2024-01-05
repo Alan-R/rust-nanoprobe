@@ -44,9 +44,6 @@ extern "C" {
 /// # Arguments
 /// * 'cap_list': a String iterator
 /// # Examples:
-/// ```
-/// let caps = cap_list_to_capset(["chown".to_string(), "setuid".to_string()].to_vec());
-/// ```
 fn cap_list_to_capset(cap_list: impl Iterator<Item=String>) -> Result<CapsHashSet, caps::errors::CapsError> {
     // Convert iterable Strings (possibly in non-canonical form) to a CapsHashSet
     let mut result_set = CapsHashSet::new();
@@ -60,8 +57,6 @@ fn cap_list_to_capset(cap_list: impl Iterator<Item=String>) -> Result<CapsHashSe
 
 #[cfg(target_family = "unix")]
 /// A trait for restricting capabilities on **Command**s being executed.
-/// This code is scheduled to run between fork and exec of Commands, so that those commands
-/// are run with exactly and only the specified capabilities.
 pub trait RestrictCaps {
     fn restrict_caps<'a>(&mut self, cap_set: CapsHashSet) -> &mut Command;
 }
@@ -71,6 +66,9 @@ pub trait RestrictCaps {
 impl RestrictCaps for Command {
     /// Restrict capabilities that a Command is run with
     /// This trait sets the capabilities in the Inheritable, Bounding, Ambient, and Effective sets.
+    /// This code is scheduled to run between fork and exec of Commands, so that those commands
+    /// are run with exactly and only the specified capabilities.
+    /// This is done using Command.pre_exec().
     ///
     /// # Arguments
     /// * 'self' - Our self Command object
@@ -113,16 +111,10 @@ impl RestrictCaps for Command {
 
 /* UNIX SetUID-related code */
 /// Trait for setting the User Id and group of our child **Command**
-/// This code is scheduled to run between fork and exec of Commands, so that those commands
-/// are run under the given user and group ids.
 /// This trait also sets the **KEEPCAPS** attribute so that any capabilities which
 /// have been set are preserved for the Command being run.
 ///
 /// This code only exists because of how the Rust .uid() Command trait operates.
-/// As of this writing, .uid() runs before any of the scheduled *pre_exec* Command
-/// operations are performed. This means you can't set **KEEPCAPS** before changing
-/// user id. Without this implementation, you could change user ids, or you could preserve
-/// capabilities, but not both.
 #[cfg(target_family = "unix")]
 pub trait SetId {
     fn set_id_keep(&mut self, uid: uid_t, gid: gid_t) -> &mut Command;
@@ -131,6 +123,16 @@ pub trait SetId {
 #[cfg(target_family = "unix")]
 impl SetId for Command {
     /// Implementation of code to set the user and group ids of our child Command
+    /// This code is scheduled to run between fork and exec of Commands, so that those commands
+    /// are run under the given user and group ids.
+    /// This is done using Command.pre_exec().
+    ///
+    /// In case you're wondering why I don't use Command.uid() instead...
+    /// As of this writing, Command.uid() runs before any of the scheduled *pre_exec* Command
+    /// operations are performed. This means you can't set **KEEPCAPS** before changing
+    /// user id. Without this implementation, you could change user ids, or you could preserve
+    /// capabilities, but not both. Sigh...
+    ///
     /// # Arguments
     /// * 'self' - Our self Command object
     /// * 'uid' - UNIX user id we want our Command to run as
@@ -177,14 +179,6 @@ pub struct ResourceLimit {
 /// # Arguments
 /// * 'str_limit' - the incoming StrResourceLimit object
 /// # Examples:
-/// ```
-/// let s_limit = StrResourceLimit {
-///     resource_type: "RLIMIT_CPU".to_string(),
-///     soft_limit: 42*,
-///     hard_limit: 2*42,
-/// };
-/// let limit = str_resource_to_resource_limit(&s_limit);
-/// ```
 fn str_resource_to_resource_limit<'a>(str_limit: &StrResourceLimit) -> io::Result<ResourceLimit> {
     match Resource::from_str(&*str_limit.resource_type) {
         Err(_) => Err(io::Error::new(
@@ -214,22 +208,6 @@ fn str_resource_to_resource_limit<'a>(str_limit: &StrResourceLimit) -> io::Resul
 /// # Arguments
 /// * 'limit_list' - the incoming StrResourceLimit iterable list
 /// # Examples:
-/// ```
-/// let limits = [
-///     StrResourceLimit {
-///         resource_type: "RLIMIT_CPU".to_string(),
-///         soft_limit: 42,
-///         hard_limit: 2*42,
-///    },
-///     StrResourceLimit {
-///         resource_type: "RLIMIT_NOFILE".to_string(),
-///         soft_limit: 42*42,
-///         hard_limit: 2*42*42,
-///    }
-/// ].to_vec();
-///
-/// let limit_vec = str_resource_to_limits(limits);
-/// ```
 fn str_resources_to_limits(limit_list: impl Iterator<Item=StrResourceLimit>) -> io::Result<Vec<ResourceLimit>> {
     let mut limits: Vec<ResourceLimit> = Vec::new();
 
@@ -246,6 +224,7 @@ fn str_resources_to_limits(limit_list: impl Iterator<Item=StrResourceLimit>) -> 
 /// Trait to set resource limits on our child Commands
 /// This code is scheduled to run between fork and exec of Commands, so that those commands
 /// are run with these resource limits.
+/// This is done using Command.pre_exec().
 /// Note that these resource limits should be set before dropping privileges, so that
 /// it's possible to set resources to exceed the system's existing hard limit.
 ///
