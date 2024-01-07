@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -15,65 +16,107 @@ impl From<String> for TLVError {
         Self(arg)
     }
 }
-type TLVResult<T> = std::result::Result<T, TLVError>;
+type TLVResult<T> = Result<T, TLVError>;
 
-const TLV_OFFSET: usize = 6;
+type TlvType = u16; // Type of the TLV 'type' field
+type TlvLen = u32; // Type of the TLV 'length' field
 
-fn get_tlv_len(stream: &Vec<u8>) -> u32 {
-    ((stream[3 + 2] as u32) << 24)
-        + ((stream[2 + 2] as u32) << 16)
-        + ((stream[1 + 2] as u32) << 8)
-        + stream[0 + 2] as u32
+// Effectively, all our TLV objects start with a Type and a Length field, conceptually looking like this...
+// But because everything is in network byte order, this struct isn't useful in the Rust code.
+// struct TLVPrefix {
+//    itype: TlvType, // But in "network byte order"
+//    ilen: TlvLen, // But in "network byte order"
+// }
+
+// Offset to the beginning of the Value
+const VALUE_OFFSET: usize = size_of::<TlvType>() + size_of::<TlvLen>();
+const LEN_OFFSET: usize = size_of::<TlvType>();
+
+fn get_tlv_len(stream: &[u8]) -> usize {
+    (((stream[3 + LEN_OFFSET] as u32) << 24)
+        + ((stream[2 + LEN_OFFSET] as u32) << 16)
+        + ((stream[1 + LEN_OFFSET] as u32) << 8)
+        + stream[0 + LEN_OFFSET] as u32) as usize
 }
-fn deserialize_u8(stream: &Vec<u8>) -> TLVResult<u8> {
-    if get_tlv_len(stream) != 1 {
-        Err(TLVError("incorrect u8 length".to_string()))
+fn deserialize_u8(stream: &[u8]) -> TLVResult<u8> {
+    if stream.len() < VALUE_OFFSET + size_of::<u8>() {
+        Err(TLVError(
+            format!("stream {} too_short for u8", stream.len()).to_string(),
+        ))
+    } else if get_tlv_len(&stream) != size_of::<u8>() {
+        Err(TLVError(
+            format!("incorrect u8 length: {}", get_tlv_len(stream)).to_string(),
+        ))
     } else {
-        Ok(stream[0 + TLV_OFFSET])
+        Ok(stream[0 + VALUE_OFFSET])
     }
 }
 
-fn deserialize_u16(stream: &Vec<u8>) -> TLVResult<u16> {
-    if get_tlv_len(stream) != 2 {
-        Err(TLVError("incorrect u16 length".to_string()))
+fn deserialize_u16(stream: &[u8]) -> TLVResult<u16> {
+    if stream.len() < VALUE_OFFSET + size_of::<u16>() {
+        Err(TLVError(
+            format!("stream {} too_short for u16", stream.len()).to_string(),
+        ))
+    } else if get_tlv_len(stream) != size_of::<u16>() {
+        Err(TLVError(
+            format!("incorrect u16 length: {}", get_tlv_len(stream)).to_string(),
+        ))
     } else {
-        Ok(((stream[1 + TLV_OFFSET] as u16) << 8) + stream[0 + TLV_OFFSET] as u16)
+        Ok(((stream[1 + VALUE_OFFSET] as u16) << 8) + stream[0 + VALUE_OFFSET] as u16)
     }
 }
 
-fn deserialize_u24(stream: &Vec<u8>) -> TLVResult<u32> {
-    if get_tlv_len(stream) != 3 {
-        Err(TLVError("incorrect u24 length".to_string()))
+fn deserialize_u24(stream: &[u8]) -> TLVResult<u32> {
+    if stream.len() < VALUE_OFFSET + 3 {
+        Err(TLVError(
+            format!("stream {} too_short for u24", stream.len()).to_string(),
+        ))
+    } else if get_tlv_len(stream) != 3 {
+        Err(TLVError(
+            format!("incorrect u24 length: {}", get_tlv_len(stream)).to_string(),
+        ))
     } else {
-        Ok(((stream[2 + TLV_OFFSET] as u32) << 16)
-            + ((stream[1 + TLV_OFFSET] as u32) << 8)
-            + stream[0 + TLV_OFFSET] as u32)
+        Ok(((stream[2 + VALUE_OFFSET] as u32) << 16)
+            + ((stream[1 + VALUE_OFFSET] as u32) << 8)
+            + stream[0 + VALUE_OFFSET] as u32)
     }
 }
 
-fn deserialize_u32(stream: &Vec<u8>) -> TLVResult<u32> {
-    if get_tlv_len(stream) != 4 {
-        Err(TLVError("incorrect u32 length".to_string()))
+fn deserialize_u32(stream: &[u8]) -> TLVResult<u32> {
+    if stream.len() < VALUE_OFFSET + size_of::<u32>() {
+        Err(TLVError(
+            format!("stream {} too_short for u32", stream.len()).to_string(),
+        ))
+    } else if get_tlv_len(stream) != size_of::<u32>() {
+        Err(TLVError(
+            format!("incorrect u32 length: {}", get_tlv_len(stream)).to_string(),
+        ))
     } else {
-        Ok(((stream[3 + TLV_OFFSET] as u32) << 24)
-            + ((stream[2 + TLV_OFFSET] as u32) << 16)
-            + ((stream[1 + TLV_OFFSET] as u32) << 8)
-            + stream[0 + TLV_OFFSET] as u32)
+        Ok(((stream[3 + VALUE_OFFSET] as u32) << 24)
+            + ((stream[2 + VALUE_OFFSET] as u32) << 16)
+            + ((stream[1 + VALUE_OFFSET] as u32) << 8)
+            + stream[0 + VALUE_OFFSET] as u32)
     }
 }
 
-fn deserialize_u64(stream: &Vec<u8>) -> TLVResult<u64> {
-    if get_tlv_len(stream) != 8 {
-        Err(TLVError("incorrect u64 length".to_string()))
+fn deserialize_u64(stream: &[u8]) -> TLVResult<u64> {
+    if stream.len() < VALUE_OFFSET + size_of::<u64>() {
+        Err(TLVError(
+            format!("incorrect u64 length: {}", get_tlv_len(stream)).to_string(),
+        ))
+    } else if get_tlv_len(stream) != size_of::<u64>() {
+        Err(TLVError(
+            format!("incorrect u64 length: {}", get_tlv_len(stream)).to_string(),
+        ))
     } else {
-        Ok(((stream[7 + TLV_OFFSET] as u64) << 56)
-            + ((stream[6 + TLV_OFFSET] as u64) << 48)
-            + ((stream[5 + TLV_OFFSET] as u64) << 40)
-            + ((stream[4 + TLV_OFFSET] as u64) << 32)
-            + ((stream[3 + TLV_OFFSET] as u64) << 24)
-            + ((stream[2 + TLV_OFFSET] as u64) << 16)
-            + ((stream[1 + TLV_OFFSET] as u64) << 8)
-            + (stream[0 + TLV_OFFSET] as u64))
+        Ok(((stream[7 + VALUE_OFFSET] as u64) << 56)
+            + ((stream[6 + VALUE_OFFSET] as u64) << 48)
+            + ((stream[5 + VALUE_OFFSET] as u64) << 40)
+            + ((stream[4 + VALUE_OFFSET] as u64) << 32)
+            + ((stream[3 + VALUE_OFFSET] as u64) << 24)
+            + ((stream[2 + VALUE_OFFSET] as u64) << 16)
+            + ((stream[1 + VALUE_OFFSET] as u64) << 8)
+            + (stream[0 + VALUE_OFFSET] as u64))
     }
 }
 
@@ -153,9 +196,9 @@ mod tests {
     #[test]
     fn test_u8() {
         let stream = &mut Vec::new();
-        let test_data = 255u8;
+        let test_data = 255u8; // Not the same as the type or length
         serialize_u8(stream, 1, test_data);
-        let result = deserialize_u8(stream);
+        let result = deserialize_u8(&stream);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data);
     }
@@ -163,36 +206,36 @@ mod tests {
     #[test]
     fn test_u16() {
         let stream = &mut Vec::new();
-        let test_data = 0xeffe;
+        let test_data = 0xeffe; // Every byte is different
         serialize_u16(stream, 1, test_data);
-        let result = deserialize_u16(stream);
+        let result = deserialize_u16(&stream);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data);
     }
     #[test]
     fn test_u24() {
         let stream = &mut Vec::new();
-        let test_data = 0xedbeefu32;
+        let test_data = 0xedbeefu32; // Every byte is different
         serialize_u24(stream, 1, test_data);
-        let result = deserialize_u24(stream);
+        let result = deserialize_u24(&stream);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data);
     }
     #[test]
     fn test_u32() {
         let stream = &mut Vec::new();
-        let test_data = 0xfeedbeefu32;
+        let test_data = 0xfeedbeefu32; // Every byte is different
         serialize_u32(stream, 1, test_data);
-        let result = deserialize_u32(stream);
+        let result = deserialize_u32(&stream);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data);
     }
     #[test]
     fn test_u64() {
         let stream = &mut Vec::new();
-        let test_data = 0xfeedbeefdeadbea7u64;
+        let test_data = 0xfeedbeefb1e55ed1; // Every byte is different
         serialize_u64(stream, 1, test_data);
-        let result = deserialize_u64(stream);
+        let result = deserialize_u64(&stream);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data);
     }
