@@ -155,7 +155,6 @@ mod tests {
         let stream = &mut Vec::new();
         let test_data = 255u8;
         serialize_u8(stream, 1, test_data);
-        println!("STREAM: {:?}", stream);
         let result = deserialize_u8(stream);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data);
@@ -164,7 +163,7 @@ mod tests {
     #[test]
     fn test_u16() {
         let stream = &mut Vec::new();
-        let test_data = 0xffffu16;
+        let test_data = 0xeffe;
         serialize_u16(stream, 1, test_data);
         let result = deserialize_u16(stream);
         assert!(result.is_ok());
