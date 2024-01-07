@@ -46,7 +46,7 @@ fn deserialize_u24(stream: &Vec<u8>) -> TLVResult<u32> {
         Err(TLVError("incorrect u24 length".to_string()))
     } else {
         Ok(((stream[2 + TLV_OFFSET] as u32) << 16)
-            + ((stream[1 + TLV_OFFSET] as u32) << 16)
+            + ((stream[1 + TLV_OFFSET] as u32) << 8)
             + stream[0 + TLV_OFFSET] as u32)
     }
 }
@@ -166,6 +166,15 @@ mod tests {
         let test_data = 0xeffe;
         serialize_u16(stream, 1, test_data);
         let result = deserialize_u16(stream);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), test_data);
+    }
+    #[test]
+    fn test_u24() {
+        let stream = &mut Vec::new();
+        let test_data = 0xedbeefu32;
+        serialize_u24(stream, 1, test_data);
+        let result = deserialize_u24(stream);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data);
     }

@@ -14,7 +14,7 @@
  * TODO: Need to figure out logging and/or tracing and implement them in this code
  */
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Result as JsonResult;
+
 use std::io;
 #[cfg(target_family = "unix")]
 use std::os::unix::process::CommandExt;
@@ -358,6 +358,7 @@ impl CommandSpecification {
 // Should these be UNIX-only tests and have a different mod for non-UNIX specific tests?
 mod tests {
     use super::*;
+    use serde_json::Result as JsonResult;
     #[cfg(target_family = "unix")]
     use users::{get_current_groupname, get_current_username};
     #[cfg(target_family = "unix")]
