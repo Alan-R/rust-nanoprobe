@@ -19,11 +19,13 @@ impl From<String> for TLVError {
     }
 }
 #[derive(Debug, PartialEq)]
-struct TLVDeser<T> {
-    bytes: usize,
-    result: T,
+/// TLVDeserializerOk is the success return value from deserializing actions
+struct TLVDeserializeOk<T> {
+    bytes: usize, // How many bytes were read?
+    result: T,    // What was the result of the deserialization?
 }
-type TLVResult<T> = Result<TLVDeser<T>, TLVError>;
+/// TLVResult is the Result of all deserialization actions
+type TLVResult<T> = Result<TLVDeserializeOk<T>, TLVError>;
 
 type TlvType = u16; // Type of the TLV 'type' field
 type TlvLen = u32; // Type of the TLV 'length' field
@@ -56,7 +58,7 @@ fn deserialize_u8(stream: &[u8]) -> TLVResult<u8> {
             format!("incorrect u8 length: {}", get_tlv_len(stream)).to_string(),
         ))
     } else {
-        Ok(TLVDeser::<u8> {
+        Ok(TLVDeserializeOk::<u8> {
             bytes: VALUE_OFFSET + size_of::<u8>(),
             result: stream[0 + VALUE_OFFSET],
         })
@@ -73,7 +75,7 @@ fn deserialize_u16(stream: &[u8]) -> TLVResult<u16> {
             format!("incorrect u16 length: {}", get_tlv_len(stream)).to_string(),
         ))
     } else {
-        Ok(TLVDeser::<u16> {
+        Ok(TLVDeserializeOk::<u16> {
             bytes: VALUE_OFFSET + size_of::<u16>(),
             result: ((stream[1 + VALUE_OFFSET] as u16) << 8) + stream[0 + VALUE_OFFSET] as u16,
         })
@@ -90,7 +92,7 @@ fn deserialize_u24(stream: &[u8]) -> TLVResult<u32> {
             format!("incorrect u24 length: {}", get_tlv_len(stream)).to_string(),
         ))
     } else {
-        Ok(TLVDeser::<u32> {
+        Ok(TLVDeserializeOk::<u32> {
             bytes: VALUE_OFFSET + 3,
             result: ((stream[2 + VALUE_OFFSET] as u32) << 16)
                 + ((stream[1 + VALUE_OFFSET] as u32) << 8)
@@ -109,7 +111,7 @@ fn deserialize_u32(stream: &[u8]) -> TLVResult<u32> {
             format!("incorrect u32 length: {}", get_tlv_len(stream)).to_string(),
         ))
     } else {
-        Ok(TLVDeser::<u32> {
+        Ok(TLVDeserializeOk::<u32> {
             bytes: VALUE_OFFSET + size_of::<u32>(),
             result: ((stream[3 + VALUE_OFFSET] as u32) << 24)
                 + ((stream[2 + VALUE_OFFSET] as u32) << 16)
@@ -129,7 +131,7 @@ fn deserialize_u64(stream: &[u8]) -> TLVResult<u64> {
             format!("incorrect u64 length: {}", get_tlv_len(stream)).to_string(),
         ))
     } else {
-        Ok(TLVDeser::<u64> {
+        Ok(TLVDeserializeOk::<u64> {
             bytes: VALUE_OFFSET + size_of::<u64>(),
             result: ((stream[7 + VALUE_OFFSET] as u64) << 56)
                 + ((stream[6 + VALUE_OFFSET] as u64) << 48)
@@ -159,7 +161,7 @@ fn deserialize_ipv4(stream: &[u8]) -> TLVResult<Ipv4Addr> {
             stream[VALUE_OFFSET + 2],
             stream[VALUE_OFFSET + 3],
         ];
-        Ok(TLVDeser::<Ipv4Addr> {
+        Ok(TLVDeserializeOk::<Ipv4Addr> {
             bytes: VALUE_OFFSET + size_of::<Ipv4Addr>(),
             result: Ipv4Addr::from(octets),
         })
@@ -176,7 +178,7 @@ fn deserialize_ipv6(stream: &[u8]) -> TLVResult<Ipv6Addr> {
             format!("incorrect IPv6 length: {}", get_tlv_len(stream)).to_string(),
         ))
     } else {
-        Ok(TLVDeser::<Ipv6Addr> {
+        Ok(TLVDeserializeOk::<Ipv6Addr> {
             bytes: VALUE_OFFSET + size_of::<Ipv6Addr>(),
             result: Ipv6Addr::from([
                 stream[VALUE_OFFSET],
@@ -206,7 +208,7 @@ fn deserialize_ipaddr(stream: &[u8]) -> TLVResult<IpAddr> {
         let maybe = deserialize_ipv6(stream);
         if maybe.is_ok() {
             let result = maybe.unwrap();
-            Ok(TLVDeser::<IpAddr> {
+            Ok(TLVDeserializeOk::<IpAddr> {
                 bytes: result.bytes,
                 result: IpAddr::V6(result.result),
             })
@@ -217,7 +219,7 @@ fn deserialize_ipaddr(stream: &[u8]) -> TLVResult<IpAddr> {
         let maybe = deserialize_ipv4(stream);
         if maybe.is_ok() {
             let result = maybe.unwrap();
-            Ok(TLVDeser::<IpAddr> {
+            Ok(TLVDeserializeOk::<IpAddr> {
                 bytes: result.bytes,
                 result: IpAddr::V4(result.result),
             })
@@ -331,7 +333,9 @@ mod tests {
         serialize_u8(stream, 1, test_data);
         let result = deserialize_u8(&stream);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().result, test_data);
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len())
     }
 
     #[test]
@@ -341,7 +345,9 @@ mod tests {
         serialize_u16(stream, 1, test_data);
         let result = deserialize_u16(&stream);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().result, test_data);
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len())
     }
     #[test]
     fn test_u24() {
@@ -349,8 +355,9 @@ mod tests {
         let test_data = 0xedbeefu32; // Every byte is different
         serialize_u24(stream, 1, test_data);
         let result = deserialize_u24(&stream);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().result, test_data);
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len())
     }
     #[test]
     fn test_u32() {
@@ -359,7 +366,9 @@ mod tests {
         serialize_u32(stream, 1, test_data);
         let result = deserialize_u32(&stream);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().result, test_data);
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len())
     }
     #[test]
     fn test_u64() {
@@ -368,7 +377,9 @@ mod tests {
         serialize_u64(stream, 1, test_data);
         let result = deserialize_u64(&stream);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().result, test_data);
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len())
     }
 
     #[test]
@@ -381,12 +392,14 @@ mod tests {
             IpAddr::V4(addr) => {
                 serialize_ipv4(stream, 1, addr);
                 let result = deserialize_ipv4(&stream);
-                println!("RESULT: {:?}", result);
                 assert!(result.is_ok());
                 assert_eq!(result.unwrap().result, addr);
                 let result = deserialize_ipaddr(&stream);
                 assert!(result.is_ok());
-                assert_eq!(result.unwrap().result, test_addr);
+                let unwrapped = result.unwrap();
+                assert_eq!(unwrapped.result, addr);
+                assert_eq!(unwrapped.bytes, stream.len());
+                assert_eq!(unwrapped.bytes, VALUE_OFFSET + 4);
             }
         }
     }
@@ -400,12 +413,16 @@ mod tests {
             IpAddr::V6(addr) => {
                 serialize_ipv6(stream, 1, addr);
                 let result = deserialize_ipv6(&stream);
-                println!("RESULT: {:?}", result);
                 assert!(result.is_ok());
-                assert_eq!(result.unwrap().result, addr);
+                let unwrapped = result.unwrap();
+                assert_eq!(unwrapped.result, addr);
+                assert_eq!(unwrapped.bytes, VALUE_OFFSET + 16);
                 let result = deserialize_ipaddr(&stream);
                 assert!(result.is_ok());
-                assert_eq!(result.unwrap().result, test_addr);
+                let unwrapped = result.unwrap();
+                assert_eq!(unwrapped.result, test_addr);
+                assert_eq!(unwrapped.bytes, stream.len());
+                assert_eq!(unwrapped.bytes, VALUE_OFFSET + 16);
             }
         }
     }
@@ -420,6 +437,9 @@ mod tests {
         assert_eq!(result.unwrap().result, test_addr);
         let result = deserialize_ipv6(&stream);
         assert!(result.is_ok());
-        assert_eq!(IpAddr::V6(result.unwrap().result), test_addr);
+        let unwrapped = result.unwrap();
+        assert_eq!(IpAddr::V6(unwrapped.result), test_addr);
+        assert_eq!(unwrapped.bytes, stream.len());
+        assert_eq!(unwrapped.bytes, VALUE_OFFSET + 16);
     }
 }
