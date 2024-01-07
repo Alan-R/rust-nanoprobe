@@ -13,30 +13,28 @@
 /*
  * TODO: Need to figure out logging and/or tracing and implement them in this code
  */
+use serde_derive::{Deserialize, Serialize};
+use serde_json::Result as JsonResult;
 use std::io;
 #[cfg(target_family = "unix")]
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Output};
 use std::str::FromStr;
-use serde_derive::{Serialize, Deserialize};
-use serde_json::{Result as JsonResult};
 
 #[cfg(target_family = "unix")]
-use caps::{Capability, CapSet, CapsHashSet, securebits::set_keepcaps};
+use caps::{securebits::set_keepcaps, CapSet, Capability, CapsHashSet};
 #[cfg(target_family = "unix")]
 use libc::c_int;
 #[cfg(target_family = "unix")]
-use rlimit::{getrlimit, Resource, setrlimit};
+use rlimit::{getrlimit, setrlimit, Resource};
 #[cfg(target_family = "unix")]
 use users::{get_group_by_name, get_user_by_name, gid_t, uid_t};
 #[cfg(target_family = "unix")]
-
 #[cfg(target_family = "unix")]
 extern "C" {
     fn setuid(uid: uid_t) -> c_int;
     fn setgid(gid: gid_t) -> c_int;
 }
-
 
 /* UNIX Capability-related code */
 
@@ -46,7 +44,9 @@ extern "C" {
 /// # Arguments
 /// * 'cap_list': a String iterator
 /// # Examples:
-fn cap_list_to_capset(cap_list: impl Iterator<Item=String>) -> Result<CapsHashSet, caps::errors::CapsError> {
+fn cap_list_to_capset(
+    cap_list: impl Iterator<Item = String>,
+) -> Result<CapsHashSet, caps::errors::CapsError> {
     // Convert iterable Strings (possibly in non-canonical form) to a CapsHashSet
     let mut result_set = CapsHashSet::new();
     for cap_name in cap_list {
@@ -56,13 +56,11 @@ fn cap_list_to_capset(cap_list: impl Iterator<Item=String>) -> Result<CapsHashSe
     Ok(result_set)
 }
 
-
 #[cfg(target_family = "unix")]
 /// A trait for restricting capabilities on **Command**s being executed.
 pub trait RestrictCaps {
     fn restrict_caps<'a>(&mut self, cap_set: CapsHashSet) -> &mut Command;
 }
-
 
 #[cfg(target_family = "unix")]
 impl RestrictCaps for Command {
@@ -81,7 +79,12 @@ impl RestrictCaps for Command {
             self.pre_exec(move || {
                 // Remove unwanted capabilities
                 // The ordering of items in 'capability_set' is important.
-                for capability_set in [CapSet::Inheritable, CapSet::Bounding, CapSet::Ambient, CapSet::Effective] {
+                for capability_set in [
+                    CapSet::Inheritable,
+                    CapSet::Bounding,
+                    CapSet::Ambient,
+                    CapSet::Effective,
+                ] {
                     let current_set_caps = caps::read(None, capability_set);
                     match current_set_caps {
                         Err(_fail) => {
@@ -102,7 +105,11 @@ impl RestrictCaps for Command {
                             }
                         }
                     }
-                    println!("Final {:?} caps: {:?}", capability_set, caps::read(None, capability_set).unwrap());
+                    println!(
+                        "Final {:?} caps: {:?}",
+                        capability_set,
+                        caps::read(None, capability_set).unwrap()
+                    );
                 }
                 Ok(())
             });
@@ -142,14 +149,18 @@ impl SetId for Command {
     fn set_id_keep(self: &mut Command, uid: uid_t, gid: gid_t) -> &mut Command {
         unsafe {
             self.pre_exec(move || {
-                println!("set_id_keep: Effective caps {:?}:{:?} => {:?}", uid, gid, caps::read(None, CapSet::Effective).unwrap());
+                println!(
+                    "set_id_keep: Effective caps {:?}:{:?} => {:?}",
+                    uid,
+                    gid,
+                    caps::read(None, CapSet::Effective).unwrap()
+                );
                 // TODO: log failures
                 _ = setgid(gid);
                 _ = set_keepcaps(true); // Must do this before the call to setuid below.
                 _ = setuid(uid);
                 Ok(())
-            }
-            );
+            });
         }
         self
     }
@@ -184,21 +195,30 @@ pub struct ResourceLimit {
 fn str_resource_to_resource_limit<'a>(str_limit: &StrResourceLimit) -> io::Result<ResourceLimit> {
     match Resource::from_str(&*str_limit.resource_type) {
         Err(_) => Err(io::Error::new(
-            io::ErrorKind::InvalidInput, format!("unknown resource type: {}", str_limit.resource_type),
+            io::ErrorKind::InvalidInput,
+            format!("unknown resource type: {}", str_limit.resource_type),
         )),
         Ok(resource_type) => {
             if resource_type.is_supported() {
                 if str_limit.soft_limit > str_limit.hard_limit {
-                    Err(io::Error::new(io::ErrorKind::InvalidInput,
-                                       format!("soft limit {} larger than hard limit {} for {}",
-                                               str_limit.soft_limit, str_limit.hard_limit, str_limit.resource_type),
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "soft limit {} larger than hard limit {} for {}",
+                            str_limit.soft_limit, str_limit.hard_limit, str_limit.resource_type
+                        ),
                     ))
                 } else {
-                    Ok(ResourceLimit { resource_type, soft_limit: str_limit.soft_limit, hard_limit: str_limit.hard_limit })
+                    Ok(ResourceLimit {
+                        resource_type,
+                        soft_limit: str_limit.soft_limit,
+                        hard_limit: str_limit.hard_limit,
+                    })
                 }
             } else {
-                Err(io::Error::new(io::ErrorKind::Unsupported,
-                                   format!("unsupported resource type {}", str_limit.resource_type),
+                Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    format!("unsupported resource type {}", str_limit.resource_type),
                 ))
             }
         }
@@ -210,13 +230,17 @@ fn str_resource_to_resource_limit<'a>(str_limit: &StrResourceLimit) -> io::Resul
 /// # Arguments
 /// * 'limit_list' - the incoming StrResourceLimit iterable list
 /// # Examples:
-fn str_resources_to_limits(limit_list: impl Iterator<Item=StrResourceLimit>) -> io::Result<Vec<ResourceLimit>> {
+fn str_resources_to_limits(
+    limit_list: impl Iterator<Item = StrResourceLimit>,
+) -> io::Result<Vec<ResourceLimit>> {
     let mut limits: Vec<ResourceLimit> = Vec::new();
 
     for str_limit in limit_list {
         match str_resource_to_resource_limit(&str_limit) {
             Ok(good_limit) => limits.push(good_limit),
-            Err(oopsie) => { return Err(oopsie); }
+            Err(oopsie) => {
+                return Err(oopsie);
+            }
         }
     }
     return Ok(limits);
@@ -296,7 +320,7 @@ impl CommandSpecification {
     pub fn run(&self) -> io::Result<Output> {
         let mut path_binding = Command::new(&*self.program_path);
         let mut command = path_binding.args(self.command_args.clone());
-        if cfg!(target_family="unix") {
+        if cfg!(target_family = "unix") {
             // The order in which we do these operations is important:
             // 1. set user (and group) id (if present)
             // 2. set resource limits
@@ -335,7 +359,7 @@ impl CommandSpecification {
 mod tests {
     use super::*;
     #[cfg(target_family = "unix")]
-    use users::{get_current_username, get_current_groupname};
+    use users::{get_current_groupname, get_current_username};
     #[cfg(target_family = "unix")]
     #[test]
     fn test_cap_list_to_capset_success() {
@@ -351,9 +375,9 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_cap_list_to_capset_fail() {
-       let cap_res = cap_list_to_capset(["chown".to_string(), "setfoo".to_string()].into_iter());
+        let cap_res = cap_list_to_capset(["chown".to_string(), "setfoo".to_string()].into_iter());
         assert!(cap_res.is_err());
-        let err_msg =  cap_res.expect_err("REASON").to_string();
+        let err_msg = cap_res.expect_err("REASON").to_string();
         assert_eq!(err_msg, "caps error: invalid capability: CAP_SETFOO");
     }
     #[cfg(target_family = "unix")]
@@ -362,13 +386,13 @@ mod tests {
         let s_limit = StrResourceLimit {
             resource_type: "RLIMIT_CPU".to_string(),
             soft_limit: 42,
-            hard_limit: 2*42,
+            hard_limit: 2 * 42,
         };
         let ok_limit = str_resource_to_resource_limit(&s_limit);
         assert!(ok_limit.is_ok());
         let limit = ok_limit.unwrap();
         assert_eq!(limit.soft_limit, 42);
-        assert_eq!(limit.hard_limit, 42*2);
+        assert_eq!(limit.hard_limit, 42 * 2);
         assert_eq!(limit.resource_type, Resource::CPU);
     }
     #[cfg(target_family = "unix")]
@@ -377,11 +401,11 @@ mod tests {
         let s_limit = StrResourceLimit {
             resource_type: "RLIMIT_CUP".to_string(),
             soft_limit: 42,
-            hard_limit: 2*42,
+            hard_limit: 2 * 42,
         };
         let bad_limit = str_resource_to_resource_limit(&s_limit);
         assert!(bad_limit.is_err());
-        let err_msg =  bad_limit.expect_err("REASON").to_string();
+        let err_msg = bad_limit.expect_err("REASON").to_string();
         assert_eq!(err_msg, "unknown resource type: RLIMIT_CUP")
     }
     #[cfg(target_family = "unix")]
@@ -389,13 +413,16 @@ mod tests {
     fn test_str_resource_to_resource_limit_fail_bad_limits() {
         let s_limit = StrResourceLimit {
             resource_type: "RLIMIT_CPU".to_string(),
-            soft_limit: 2*42,
+            soft_limit: 2 * 42,
             hard_limit: 42,
         };
         let bad_limit = str_resource_to_resource_limit(&s_limit);
         assert!(bad_limit.is_err());
-        let err_msg =  bad_limit.expect_err("REASON").to_string();
-        assert_eq!(err_msg, "soft limit 84 larger than hard limit 42 for RLIMIT_CPU")
+        let err_msg = bad_limit.expect_err("REASON").to_string();
+        assert_eq!(
+            err_msg,
+            "soft limit 84 larger than hard limit 42 for RLIMIT_CPU"
+        )
     }
     #[cfg(target_family = "unix")]
     #[test]
@@ -403,25 +430,26 @@ mod tests {
         let limits = [
             StrResourceLimit {
                 resource_type: "RLIMIT_CPU".to_string(),
-                hard_limit: 2*42,
+                hard_limit: 2 * 42,
                 soft_limit: 42,
-           },
+            },
             StrResourceLimit {
                 resource_type: "RLIMIT_NOFILE".to_string(),
-                hard_limit: 2*42*42,
-                soft_limit: 42*42,
-           }
-        ].to_vec();
+                hard_limit: 2 * 42 * 42,
+                soft_limit: 42 * 42,
+            },
+        ]
+        .to_vec();
 
         let ok_limit_vec = str_resources_to_limits(limits.into_iter());
         assert!(ok_limit_vec.is_ok());
         let limit_vec = ok_limit_vec.unwrap();
         assert_eq!(limit_vec.len(), 2);
         assert_eq!(limit_vec[0].soft_limit, 42);
-        assert_eq!(limit_vec[0].hard_limit, 42*2);
+        assert_eq!(limit_vec[0].hard_limit, 42 * 2);
         assert_eq!(limit_vec[1].resource_type, Resource::NOFILE);
-        assert_eq!(limit_vec[1].soft_limit, 42*42);
-        assert_eq!(limit_vec[1].hard_limit, 42*42*2);
+        assert_eq!(limit_vec[1].soft_limit, 42 * 42);
+        assert_eq!(limit_vec[1].hard_limit, 42 * 42 * 2);
         assert_eq!(limit_vec[0].resource_type, Resource::CPU);
     }
     #[cfg(target_family = "unix")]
@@ -431,18 +459,19 @@ mod tests {
             StrResourceLimit {
                 resource_type: "RLIMIT_CPU".to_string(),
                 soft_limit: 42,
-                hard_limit: 2*42,
+                hard_limit: 2 * 42,
             },
             StrResourceLimit {
                 resource_type: "RLIMIT_N0FILE".to_string(),
-                soft_limit: 42*42,
-                hard_limit: 2*42*42,
-            }
-        ].to_vec();
+                soft_limit: 42 * 42,
+                hard_limit: 2 * 42 * 42,
+            },
+        ]
+        .to_vec();
 
         let err_limit_vec = str_resources_to_limits(limits.into_iter());
         assert!(err_limit_vec.is_err());
-        let err_msg =  err_limit_vec.expect_err("REASON").to_string();
+        let err_msg = err_limit_vec.expect_err("REASON").to_string();
         assert_eq!(err_msg, "unknown resource type: RLIMIT_N0FILE")
     }
     #[cfg(target_family = "unix")]
@@ -451,20 +480,24 @@ mod tests {
         let limits = [
             StrResourceLimit {
                 resource_type: "RLIMIT_CPU".to_string(),
-                soft_limit: 2*42,
+                soft_limit: 2 * 42,
                 hard_limit: 42,
             },
             StrResourceLimit {
                 resource_type: "RLIMIT_N0FILE".to_string(),
-                soft_limit: 42*42,
-                hard_limit: 2*42*42,
-            }
-        ].to_vec();
+                soft_limit: 42 * 42,
+                hard_limit: 2 * 42 * 42,
+            },
+        ]
+        .to_vec();
 
         let err_limit_vec = str_resources_to_limits(limits.into_iter());
         assert!(err_limit_vec.is_err());
-        let err_msg =  err_limit_vec.expect_err("REASON").to_string();
-        assert_eq!(err_msg, "soft limit 84 larger than hard limit 42 for RLIMIT_CPU")
+        let err_msg = err_limit_vec.expect_err("REASON").to_string();
+        assert_eq!(
+            err_msg,
+            "soft limit 84 larger than hard limit 42 for RLIMIT_CPU"
+        )
     }
     #[test]
     /// This test exercises almost all the features at once. The exception is the setgid only path in the code.
@@ -475,32 +508,41 @@ mod tests {
         if cfg!(target_family = "unix") {
             path = "/bin/echo";
             args = ["Hello, world!".to_string()].to_vec();
-        }else{
+        } else {
             path = "cmd";
             args = ["/C".to_string(), "echo Hello, world!".to_string()].to_vec();
         }
-        let limits = [
-            StrResourceLimit {
-                resource_type: "RLIMIT_CPU".to_string(),
-                hard_limit: 2*42,
-                soft_limit: 42,
-            }
-        ].to_vec();
+        let limits = [StrResourceLimit {
+            resource_type: "RLIMIT_CPU".to_string(),
+            hard_limit: 2 * 42,
+            soft_limit: 42,
+        }]
+        .to_vec();
         let spec = CommandSpecification {
             program_path: path.to_string(),
             command_args: args,
             capabilities: ["chown".to_string()].to_vec(),
             resource_limits: limits,
-            userid:  {
+            userid: {
                 if cfg!(target_family = "unix") {
-                    Some(get_current_username().unwrap().to_string_lossy().to_string())
+                    Some(
+                        get_current_username()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string(),
+                    )
                 } else {
                     None
                 }
             },
-            groupid:  {
+            groupid: {
                 if cfg!(target_family = "unix") {
-                    Some(get_current_groupname().unwrap().to_string_lossy().to_string())
+                    Some(
+                        get_current_groupname()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string(),
+                    )
                 } else {
                     None
                 }
@@ -526,12 +568,13 @@ mod tests {
         if cfg!(target_family = "unix") {
             path = "/bin/echo";
             args = r#""Hello, world!""#;
-        }else{
+        } else {
             path = "cmd";
             args = r#""/C", "echo Hello, world!""#;
         }
         // It's worth noting that the fields have to be in the same order as the structure for serde_json to work.
-        let json_str = format!(r#"
+        let json_str = format!(
+            r#"
         {{
             "program_path": "{}",
             "command_args": [{}],
@@ -544,8 +587,10 @@ mod tests {
             }}
             ]
         }}
-        "#, path, args);
-        let spec : JsonResult<CommandSpecification> = serde_json::from_str(&*json_str);
+        "#,
+            path, args
+        );
+        let spec: JsonResult<CommandSpecification> = serde_json::from_str(&*json_str);
         assert!(spec.is_ok());
         let command = spec.unwrap();
         let json_out = serde_json::to_string(&command);

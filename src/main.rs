@@ -10,28 +10,34 @@
  *  can be killed gracefully.
  *
  */
-use crate::run::{StrResourceLimit, CommandSpecification};
+use crate::run::{CommandSpecification, StrResourceLimit};
 pub mod run;
+pub mod tlv;
 
 fn main() {
     // let requested_cap_list = ["chown", "setuid"];
     let requested_limits = [
-        StrResourceLimit{
+        StrResourceLimit {
             resource_type: "RLIMIT_CPU".to_string(),
             soft_limit: 42,
-            hard_limit: 42*2,
+            hard_limit: 42 * 2,
         },
-        StrResourceLimit{
+        StrResourceLimit {
             resource_type: "RLIMIT_NOFILE".to_string(),
-            soft_limit: 42*42,
-            hard_limit: 2*42*42,
+            soft_limit: 42 * 42,
+            hard_limit: 2 * 42 * 42,
         },
-    ].to_vec();
-
+    ]
+    .to_vec();
 
     let spec = CommandSpecification {
         program_path: "/bin/sh".to_string(),
-        command_args: ["-c".to_string(), "-x".to_string(), "ulimit -a; id; /usr/sbin/capsh --print".to_string()].to_vec(),
+        command_args: [
+            "-c".to_string(),
+            "-x".to_string(),
+            "ulimit -a; id; /usr/sbin/capsh --print".to_string(),
+        ]
+        .to_vec(),
         capabilities: ["chown".to_string(), "setuid".to_string()].to_vec(),
         resource_limits: requested_limits,
         userid: Some("nobody".to_string()),
