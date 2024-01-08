@@ -246,11 +246,10 @@ fn deserialize_cstring(stream: &[u8]) -> TLVResult<String> {
         Err(TLVError("Cstring not NULL-terminated".to_string()))
     } else {
         let data = &stream[VALUE_OFFSET..VALUE_OFFSET + object_length - 1];
-        let result = String::from_utf8_lossy(data);
 
         Ok(TLVDeserializeOk::<String> {
             bytes: VALUE_OFFSET + object_length,
-            result: result.to_string(),
+            result: String::from_utf8_lossy(data).to_string(),
         })
     }
 }
