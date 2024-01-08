@@ -43,21 +43,29 @@ const VALUE_OFFSET: usize = size_of::<TlvType>() + size_of::<TlvLen>();
 // Offset to the beginning of the Length field
 const LEN_OFFSET: usize = size_of::<TlvType>();
 
+struct SequenceNumber {
+    reqid: u64,     // The sequence number for this session and queue.
+    sessionid: u32, // The session id for this queue. Incremented each time the protocol restarts.
+    qid: u16, // Allows for more than one communication stream between endpoints. Not sure it's needed...
+}
+
 fn get_tlv_len(stream: &[u8]) -> usize {
-    (((stream[3 + LEN_OFFSET] as u32) << 24)
+    (((stream[3 + LEN_OFFSET] as u32) << 24)        // Not quite a duplicate of deserialize_u32
         + ((stream[2 + LEN_OFFSET] as u32) << 16)
         + ((stream[1 + LEN_OFFSET] as u32) << 8)
         + stream[0 + LEN_OFFSET] as u32) as usize
 }
 fn deserialize_u8(stream: &[u8]) -> TLVResult<u8> {
     if stream.len() < VALUE_OFFSET + size_of::<u8>() {
-        Err(TLVError(
-            format!("stream {} too_short for u8", stream.len()).to_string(),
-        ))
+        Err(TLVError(format!(
+            "stream {} too_short for u8",
+            stream.len()
+        )))
     } else if get_tlv_len(&stream) != size_of::<u8>() {
-        Err(TLVError(
-            format!("incorrect u8 length: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "incorrect u8 length: {}",
+            get_tlv_len(stream)
+        )))
     } else {
         Ok(TLVDeserializeOk::<u8> {
             bytes: VALUE_OFFSET + size_of::<u8>(),
@@ -66,32 +74,60 @@ fn deserialize_u8(stream: &[u8]) -> TLVResult<u8> {
     }
 }
 
+#[inline]
+fn deserialize_u16_raw(stream: &[u8]) -> u16 {
+    ((stream[1] as u16) << 8) + stream[0] as u16
+}
+#[inline]
+fn deserialize_u32_raw(stream: &[u8]) -> u32 {
+    ((stream[3] as u32) << 24)
+        + ((stream[2] as u32) << 16)
+        + ((stream[1] as u32) << 8)
+        + stream[0] as u32
+}
+
+#[inline]
+fn deserialize_u64_raw(stream: &[u8]) -> u64 {
+    ((stream[7] as u64) << 56)
+        + ((stream[6] as u64) << 48)
+        + ((stream[5] as u64) << 40)
+        + ((stream[4] as u64) << 32)
+        + ((stream[3] as u64) << 24)
+        + ((stream[2] as u64) << 16)
+        + ((stream[1] as u64) << 8)
+        + (stream[0] as u64)
+}
+
 fn deserialize_u16(stream: &[u8]) -> TLVResult<u16> {
     if stream.len() < VALUE_OFFSET + size_of::<u16>() {
-        Err(TLVError(
-            format!("stream {} too_short for u16", stream.len()).to_string(),
-        ))
+        Err(TLVError(format!(
+            "stream {} too_short for u16",
+            stream.len()
+        )))
     } else if get_tlv_len(stream) != size_of::<u16>() {
-        Err(TLVError(
-            format!("incorrect u16 length: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "incorrect u16 length: {}",
+            get_tlv_len(stream)
+        )))
     } else {
         Ok(TLVDeserializeOk::<u16> {
             bytes: VALUE_OFFSET + size_of::<u16>(),
-            result: ((stream[1 + VALUE_OFFSET] as u16) << 8) + stream[0 + VALUE_OFFSET] as u16,
+            result: deserialize_u16_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 2]),
         })
     }
 }
 
 fn deserialize_u24(stream: &[u8]) -> TLVResult<u32> {
     if stream.len() < VALUE_OFFSET + 3 {
-        Err(TLVError(
-            format!("stream {} too_short for u24", stream.len()).to_string(),
-        ))
+        Err(TLVError(format!(
+            "stream {} too_short for u24",
+            stream.len()
+        )))
     } else if get_tlv_len(stream) != 3 {
-        Err(TLVError(
-            format!("incorrect u24 length: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "incorrect u24 length: {}",
+            get_tlv_len(stream)
+        )))
     } else {
         Ok(TLVDeserializeOk::<u32> {
             bytes: VALUE_OFFSET + 3,
@@ -104,57 +140,53 @@ fn deserialize_u24(stream: &[u8]) -> TLVResult<u32> {
 
 fn deserialize_u32(stream: &[u8]) -> TLVResult<u32> {
     if stream.len() < VALUE_OFFSET + size_of::<u32>() {
-        Err(TLVError(
-            format!("stream {} too_short for u32", stream.len()).to_string(),
-        ))
+        Err(TLVError(format!(
+            "stream {} too_short for u32",
+            stream.len()
+        )))
     } else if get_tlv_len(stream) != size_of::<u32>() {
-        Err(TLVError(
-            format!("incorrect u32 length: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "incorrect u32 length: {}",
+            get_tlv_len(stream)
+        )))
     } else {
         Ok(TLVDeserializeOk::<u32> {
             bytes: VALUE_OFFSET + size_of::<u32>(),
-            result: ((stream[3 + VALUE_OFFSET] as u32) << 24)
-                + ((stream[2 + VALUE_OFFSET] as u32) << 16)
-                + ((stream[1 + VALUE_OFFSET] as u32) << 8)
-                + stream[0 + VALUE_OFFSET] as u32,
+            result: deserialize_u32_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 4]),
         })
     }
 }
 
 fn deserialize_u64(stream: &[u8]) -> TLVResult<u64> {
     if stream.len() < VALUE_OFFSET + size_of::<u64>() {
-        Err(TLVError(
-            format!("stream too short for u64: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "stream too short for u64: {}",
+            get_tlv_len(stream)
+        )))
     } else if get_tlv_len(stream) != size_of::<u64>() {
-        Err(TLVError(
-            format!("incorrect u64 length: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "incorrect u64 length: {}",
+            get_tlv_len(stream)
+        )))
     } else {
         Ok(TLVDeserializeOk::<u64> {
             bytes: VALUE_OFFSET + size_of::<u64>(),
-            result: ((stream[7 + VALUE_OFFSET] as u64) << 56)
-                + ((stream[6 + VALUE_OFFSET] as u64) << 48)
-                + ((stream[5 + VALUE_OFFSET] as u64) << 40)
-                + ((stream[4 + VALUE_OFFSET] as u64) << 32)
-                + ((stream[3 + VALUE_OFFSET] as u64) << 24)
-                + ((stream[2 + VALUE_OFFSET] as u64) << 16)
-                + ((stream[1 + VALUE_OFFSET] as u64) << 8)
-                + (stream[0 + VALUE_OFFSET] as u64),
+            result: deserialize_u64_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 8]),
         })
     }
 }
 
 fn deserialize_ipv4(stream: &[u8]) -> TLVResult<Ipv4Addr> {
     if stream.len() < VALUE_OFFSET + size_of::<Ipv4Addr>() {
-        Err(TLVError(
-            format!("stream too short for Ipv4Addr: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "stream too short for Ipv4Addr: {}",
+            get_tlv_len(stream)
+        )))
     } else if get_tlv_len(stream) != size_of::<Ipv4Addr>() {
-        Err(TLVError(
-            format!("incorrect IPv4 length: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "incorrect IPv4 length: {}",
+            get_tlv_len(stream)
+        )))
     } else {
         let octets: [u8; 4] = [
             stream[VALUE_OFFSET],
@@ -171,13 +203,15 @@ fn deserialize_ipv4(stream: &[u8]) -> TLVResult<Ipv4Addr> {
 
 fn deserialize_ipv6(stream: &[u8]) -> TLVResult<Ipv6Addr> {
     if stream.len() < VALUE_OFFSET + size_of::<Ipv6Addr>() {
-        Err(TLVError(
-            format!("stream too short for Ipv6Addr: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "stream too short for Ipv6Addr: {}",
+            get_tlv_len(stream)
+        )))
     } else if get_tlv_len(stream) != size_of::<Ipv6Addr>() {
-        Err(TLVError(
-            format!("incorrect IPv6 length: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "incorrect IPv6 length: {}",
+            get_tlv_len(stream)
+        )))
     } else {
         Ok(TLVDeserializeOk::<Ipv6Addr> {
             bytes: VALUE_OFFSET + size_of::<Ipv6Addr>(),
@@ -233,14 +267,15 @@ fn deserialize_ipaddr(stream: &[u8]) -> TLVResult<IpAddr> {
 fn deserialize_cstring(stream: &[u8]) -> TLVResult<String> {
     let object_length = get_tlv_len(stream);
     if stream.len() < VALUE_OFFSET + 1 {
-        Err(TLVError(
-            format!("stream too short for Cstring: {}", get_tlv_len(stream)).to_string(),
-        ))
+        Err(TLVError(format!(
+            "stream too short for Cstring: {}",
+            get_tlv_len(stream)
+        )))
     } else if stream.len() < (get_tlv_len(stream) + VALUE_OFFSET) {
         Err(TLVError(format!(
             "stream length {} too short for length field {}",
-            get_tlv_len(stream).to_string(),
-            stream.len()
+            stream.len(),
+            get_tlv_len(stream),
         )))
     } else if stream[VALUE_OFFSET + object_length - 1] != 0x00 {
         Err(TLVError("Cstring not NULL-terminated".to_string()))
@@ -250,6 +285,30 @@ fn deserialize_cstring(stream: &[u8]) -> TLVResult<String> {
         Ok(TLVDeserializeOk::<String> {
             bytes: VALUE_OFFSET + object_length,
             result: String::from_utf8_lossy(data).to_string(),
+        })
+    }
+}
+
+fn deserialize_seqno(stream: &[u8]) -> TLVResult<SequenceNumber> {
+    if stream.len() < VALUE_OFFSET + size_of::<SequenceNumber>() {
+        Err(TLVError(format!(
+            "stream too short for SequenceNumber: {}",
+            stream.len()
+        )))
+    } else if get_tlv_len(stream) != size_of::<SequenceNumber>() {
+        Err(TLVError(format!(
+            "TLV length {} incorrect for SequenceNumber",
+            get_tlv_len(stream),
+        )))
+    } else {
+        // Something goes here...
+        Ok(TLVDeserializeOk::<SequenceNumber> {
+            bytes: VALUE_OFFSET + size_of::<SequenceNumber>(),
+            result: SequenceNumber {
+                reqid: deserialize_u64_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 8]),
+                sessionid: deserialize_u32_raw(&stream[VALUE_OFFSET + 8..VALUE_OFFSET + 12]),
+                qid: deserialize_u16_raw(&stream[VALUE_OFFSET + 12..VALUE_OFFSET + 14]),
+            },
         })
     }
 }
