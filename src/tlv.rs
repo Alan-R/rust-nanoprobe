@@ -1,6 +1,7 @@
 // use serde_json::Value;
 use std::mem::size_of;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::string::String;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -228,6 +229,31 @@ fn deserialize_ipaddr(stream: &[u8]) -> TLVResult<IpAddr> {
         }
     }
 }
+
+fn deserialize_cstring(stream: &[u8]) -> TLVResult<String> {
+    let object_length = get_tlv_len(stream);
+    if stream.len() < VALUE_OFFSET + 1 {
+        Err(TLVError(
+            format!("stream too short for Cstring: {}", get_tlv_len(stream)).to_string(),
+        ))
+    } else if stream.len() < (get_tlv_len(stream) + VALUE_OFFSET) {
+        Err(TLVError(format!(
+            "stream length {} too short for length field {}",
+            get_tlv_len(stream).to_string(),
+            stream.len()
+        )))
+    } else if stream[VALUE_OFFSET + object_length - 1] != 0x00 {
+        Err(TLVError("Cstring not NULL-terminated".to_string()))
+    } else {
+        let data = &stream[VALUE_OFFSET..VALUE_OFFSET + object_length - 1];
+        let result = String::from_utf8_lossy(data);
+
+        Ok(TLVDeserializeOk::<String> {
+            bytes: VALUE_OFFSET + object_length,
+            result: result.to_string(),
+        })
+    }
+}
 fn serialize_u16_raw(stream: &mut Vec<u8>, data: u16) {
     for item in [(data & 0xff) as u8, (data >> 8) as u8] {
         stream.push(item);
@@ -318,6 +344,16 @@ fn serialize_ipaddr(stream: &mut Vec<u8>, itype: u16, item: IpAddr) {
         IpAddr::V4(v4) => serialize_ipv4(stream, itype, v4),
         IpAddr::V6(v6) => serialize_ipv6(stream, itype, v6),
     }
+}
+
+fn serialize_cstring(stream: &mut Vec<u8>, itype: u16, item: &String) {
+    serialize_u16_raw(stream, itype);
+    let length = item.len() + 1;
+    serialize_u32_raw(stream, length as u32);
+    for byte in item.as_bytes() {
+        stream.push(*byte);
+    }
+    stream.push(0x00);
 }
 
 #[cfg(test)]
@@ -441,5 +477,27 @@ mod tests {
         assert_eq!(IpAddr::V6(unwrapped.result), test_addr);
         assert_eq!(unwrapped.bytes, stream.len());
         assert_eq!(unwrapped.bytes, VALUE_OFFSET + 16);
+    }
+    #[test]
+    fn test_cstring() {
+        let stream = &mut Vec::new();
+        let test_string = "Hello, world!".to_string();
+
+        serialize_cstring(stream, 1, &test_string);
+        let result = deserialize_cstring(&stream);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().result, test_string);
+        let result = deserialize_cstring(&stream);
+        assert!(result.is_ok());
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_string);
+        assert_eq!(unwrapped.bytes, stream.len());
+        assert_eq!(unwrapped.bytes, VALUE_OFFSET + test_string.len() + 1);
+        let stream_len = stream.len();
+        stream[stream_len - 1] = 0x40; // A blank...
+        let result = deserialize_cstring(&stream);
+        assert!(result.is_err());
+        let err_msg = result.expect_err("REASON").to_string();
+        assert_eq!(err_msg, "TLV error: Cstring not NULL-terminated");
     }
 }
