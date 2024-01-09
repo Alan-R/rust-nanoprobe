@@ -1,4 +1,5 @@
 // use serde_json::Value;
+use serde_json::Value;
 use std::mem::size_of;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::string::String;
@@ -96,8 +97,8 @@ impl Compression<'_> {
 }
 #[derive(Debug, PartialEq)]
 pub struct Encryption<'a> {
-    uncompressed_size: u32,
-    compression_type: u8,
+    sender_key_id: String,
+    receiver_key_id: String,
     data: Box<&'a [u8]>,
 }
 impl Encryption<'_> {
@@ -329,27 +330,39 @@ fn deserialize_ipaddr(stream: &[u8]) -> TLVResult<IpAddr> {
     }
 }
 
+#[inline]
+fn deserialize_cstring_raw(stream: &[u8]) -> TLVResult<String> {
+    if stream[stream.len() - 1] != 0x00 {
+        Err(TLVError("Cstring not NULL-terminated".to_string()))
+    } else {
+        Ok(TLVDeserializeOk::<String> {
+            bytes: stream.len() - 1,
+            result: String::from_utf8_lossy(&stream[0..stream.len() - 1]).to_string(),
+        })
+    }
+}
+
 fn deserialize_cstring(stream: &[u8]) -> TLVResult<String> {
     let object_length = get_tlv_len(stream);
     if stream.len() < VALUE_OFFSET + 1 {
-        Err(TLVError(format!(
+        return Err(TLVError(format!(
             "stream too short for Cstring: {}",
             get_tlv_len(stream)
-        )))
+        )));
     } else if stream.len() < (get_tlv_len(stream) + VALUE_OFFSET) {
-        Err(TLVError(format!(
+        return Err(TLVError(format!(
             "stream length {} too short for length field {}",
             stream.len(),
             get_tlv_len(stream),
-        )))
-    } else if stream[VALUE_OFFSET + object_length - 1] != 0x00 {
-        Err(TLVError("Cstring not NULL-terminated".to_string()))
+        )));
+    }
+    let try_string = deserialize_cstring_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + object_length]);
+    if try_string.is_err() {
+        try_string
     } else {
-        let data = &stream[VALUE_OFFSET..VALUE_OFFSET + object_length - 1];
-
         Ok(TLVDeserializeOk::<String> {
             bytes: VALUE_OFFSET + object_length,
-            result: String::from_utf8_lossy(data).to_string(),
+            result: try_string.unwrap().result,
         })
     }
 }
@@ -452,6 +465,72 @@ fn deserialize_compression(stream: &[u8]) -> TLVResult<Compression> {
         Ok(TLVDeserializeOk::<Compression> {
             bytes: VALUE_OFFSET + frame_len,
             result: compression,
+        })
+    }
+}
+fn deserialize_encryption(stream: &[u8]) -> TLVResult<Encryption> {
+    // Right now, we only support stupid, do-nothing compression (compression type 0).
+    if stream.len() < VALUE_OFFSET + 5 {
+        return Err(TLVError(format!(
+            "stream too short for Encryption frame: {}",
+            stream.len(),
+        )));
+    }
+    let frame_length = get_tlv_len(stream);
+    let sender_key_len = stream[VALUE_OFFSET] as usize;
+    let min_length = VALUE_OFFSET + sender_key_len + 2;
+    if stream.len() < min_length {
+        return Err(TLVError(format!(
+            "stream too short for Encryption frame as formatted(1): {}",
+            stream.len(),
+        )));
+    }
+    let receiver_key_len = stream[VALUE_OFFSET + 1 + sender_key_len] as usize;
+    let min_length = VALUE_OFFSET + sender_key_len + receiver_key_len + 2;
+
+    if stream.len() < min_length {
+        return Err(TLVError(format!(
+            "stream too short for Encryption frame as formatted(2): {}, {}, {}",
+            stream.len(),
+            sender_key_len,
+            receiver_key_len
+        )));
+    }
+    let mut receiver_key_try =
+        deserialize_cstring_raw(&stream[VALUE_OFFSET + 1..VALUE_OFFSET + 2 + receiver_key_len]);
+    if receiver_key_try.is_err() {
+        return Err(TLVError(receiver_key_try.unwrap_err().to_string()));
+    }
+    let mut receiver_key_id = receiver_key_try.unwrap().result;
+    let receiver_id_len = receiver_key_id.len() + 1;
+
+    let mut sender_key_try = deserialize_cstring_raw(
+        &stream[VALUE_OFFSET + 2 + receiver_id_len
+            ..VALUE_OFFSET + 2 + receiver_key_len + sender_key_len],
+    );
+    if sender_key_try.is_err() {
+        return Err(TLVError(sender_key_try.unwrap_err().to_string()));
+    }
+    let mut sender_key_id = sender_key_try.unwrap().result;
+    let sender_id_len = sender_key_id.len() + 1;
+
+    let mut decrypted = Encryption {
+        sender_key_id,
+        receiver_key_id,
+        data: Box::new(b""),
+    };
+    if decrypted.is_valid().is_err() {
+        Err(TLVError(format!(
+            "Encryption frame is not valid: {:?} ",
+            decrypted.is_valid().unwrap_err()
+        )))
+    } else {
+        // Decryption step goes here...
+        decrypted.data =
+            Box::new(&stream[VALUE_OFFSET + 2 + sender_id_len + receiver_id_len..frame_length]);
+        Ok(TLVDeserializeOk::<Encryption> {
+            bytes: min_length + decrypted.data.len(),
+            result: decrypted,
         })
     }
 }
@@ -587,6 +666,26 @@ fn serialize_compression(stream: &mut Vec<u8>, itype: u16, item: &Compression) {
     serialize_u32_raw(stream, item.uncompressed_size);
     stream.push(item.compression_type);
     // We should append the compressed data instead of the uncompressed data...
+    stream.append(&mut item.data.to_vec());
+}
+fn serialize_encryption(stream: &mut Vec<u8>, itype: u16, item: &Encryption) {
+    serialize_u16_raw(stream, itype);
+    let data_vec = &mut item.data.to_vec();
+    let len =
+        VALUE_OFFSET + 4 + item.receiver_key_id.len() + item.sender_key_id.len() + data_vec.len();
+
+    serialize_u32_raw(stream, len as u32);
+    stream.push((item.receiver_key_id.len() + 1) as u8);
+    for byte in item.receiver_key_id.as_bytes() {
+        stream.push(*byte);
+    }
+    stream.push(0x00u8);
+    stream.push((item.sender_key_id.len() + 1) as u8);
+    for byte in item.sender_key_id.as_bytes() {
+        stream.push(*byte);
+    }
+    stream.push(0x00u8);
+    // We should append the decrypted data instead of the "encrypted" data...
     stream.append(&mut item.data.to_vec());
 }
 //=====================================================================
@@ -765,7 +864,6 @@ mod tests {
         };
         serialize_signature(stream, 1, &test_data);
         let result = deserialize_signature(&stream);
-        println!("{:?}", result);
         assert!(result.is_ok());
         let unwrapped = result.unwrap();
         assert_eq!(unwrapped.result, test_data);
@@ -782,6 +880,22 @@ mod tests {
         };
         serialize_compression(stream, 1, &test_data);
         let result = deserialize_compression(&stream);
+        assert!(result.is_ok());
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len());
+    }
+    #[test]
+    fn test_encryption() {
+        let stream = &mut Vec::new();
+        let data = b"Slarty Bartfast";
+        let test_data = Encryption {
+            sender_key_id: "me".to_string(),
+            receiver_key_id: "you".to_string(),
+            data: Box::new(data),
+        };
+        serialize_encryption(stream, 1, &test_data);
+        let result = deserialize_encryption(&stream);
         assert!(result.is_ok());
         let unwrapped = result.unwrap();
         assert_eq!(unwrapped.result, test_data);
