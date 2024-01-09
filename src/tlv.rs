@@ -1,5 +1,4 @@
 // use serde_json::Value;
-use serde_json::Value;
 use std::mem::size_of;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::string::String;
@@ -496,22 +495,22 @@ fn deserialize_encryption(stream: &[u8]) -> TLVResult<Encryption> {
             receiver_key_len
         )));
     }
-    let mut receiver_key_try =
+    let receiver_key_try =
         deserialize_cstring_raw(&stream[VALUE_OFFSET + 1..VALUE_OFFSET + 2 + receiver_key_len]);
     if receiver_key_try.is_err() {
         return Err(TLVError(receiver_key_try.unwrap_err().to_string()));
     }
-    let mut receiver_key_id = receiver_key_try.unwrap().result;
+    let receiver_key_id = receiver_key_try.unwrap().result;
     let receiver_id_len = receiver_key_id.len() + 1;
 
-    let mut sender_key_try = deserialize_cstring_raw(
+    let sender_key_try = deserialize_cstring_raw(
         &stream[VALUE_OFFSET + 2 + receiver_id_len
             ..VALUE_OFFSET + 2 + receiver_key_len + sender_key_len],
     );
     if sender_key_try.is_err() {
         return Err(TLVError(sender_key_try.unwrap_err().to_string()));
     }
-    let mut sender_key_id = sender_key_try.unwrap().result;
+    let sender_key_id = sender_key_try.unwrap().result;
     let sender_id_len = sender_key_id.len() + 1;
 
     let mut decrypted = Encryption {
