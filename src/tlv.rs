@@ -21,12 +21,12 @@ impl From<String> for TLVError {
 }
 #[derive(Debug, PartialEq)]
 /// TLVDeserializerOk is the success return value from deserializing actions
-struct TLVDeserializeOk<T> {
+pub struct TLVDeserializeOk<T> {
     bytes: usize, // How many bytes were read?
     result: T,    // What was the result of the deserialization?
 }
 /// TLVResult is the Result of all deserialization actions
-type TLVResult<T> = Result<TLVDeserializeOk<T>, TLVError>;
+pub type TLVResult<T> = Result<TLVDeserializeOk<T>, TLVError>;
 
 type TlvType = u16; // Type of the TLV 'type' field
 type TlvLen = u32; // Type of the TLV 'length' field
@@ -49,7 +49,7 @@ const LEN_OFFSET: usize = size_of::<TlvType>();
 #[derive(Debug, PartialEq)]
 /// Sequence numbers include sessionid to make replay attacks difficult.
 /// Session IDs are incremented each time an endpoint restarts.
-struct SequenceNumber {
+pub struct SequenceNumber {
     reqid: u64,     // The sequence number for this session and queue.
     sessionid: u32, // The session id for this queue. Incremented each time the protocol restarts.
     qid: u16, // Allows for more than one communication stream between endpoints. Not sure it's needed...
@@ -58,7 +58,7 @@ struct SequenceNumber {
 const SEQNO_LEN: usize = size_of::<u64>() + size_of::<u32>() + size_of::<u16>(); // No padding at the end!
 /// Digital signature frame
 #[derive(Debug, PartialEq)]
-struct Signature<'a> {
+pub struct Signature<'a> {
     sign_provider: u8,
     sign_type: u8,
     signature: Box<&'a [u8]>,
@@ -66,15 +66,47 @@ struct Signature<'a> {
 const SIGNATURE_FRAME_TYPE: u16 = 1;
 const MIN_SIGNATURE_LEN: usize = 3 * size_of::<u8>();
 impl Signature<'_> {
-    fn is_valid(&self) -> bool {
-        true
+    fn is_valid(&self) -> TLVResult<()> {
+        if self.sign_provider == 0 && self.sign_type == 0 {
+            Ok(TLVDeserializeOk::<()> {
+                bytes: 0,
+                result: (),
+            })
+        } else {
+            Err(TLVError(format!(
+                "invalid signature type: {}:{}",
+                self.sign_provider, self.sign_type
+            )))
+        }
     }
 }
 #[derive(Debug, PartialEq)]
-struct Compression<'a> {
+pub struct Compression<'a> {
     uncompressed_size: u32,
     compression_type: u8,
     data: Box<&'a [u8]>,
+}
+impl Compression<'_> {
+    fn is_valid(&self) -> TLVResult<()> {
+        Ok(TLVDeserializeOk::<()> {
+            bytes: 0,
+            result: (),
+        })
+    }
+}
+#[derive(Debug, PartialEq)]
+pub struct Encryption<'a> {
+    uncompressed_size: u32,
+    compression_type: u8,
+    data: Box<&'a [u8]>,
+}
+impl Encryption<'_> {
+    fn is_valid(&self) -> TLVResult<()> {
+        Ok(TLVDeserializeOk::<()> {
+            bytes: 0,
+            result: (),
+        })
+    }
 }
 
 //=====================================================================
@@ -367,10 +399,10 @@ fn deserialize_signature(stream: &[u8]) -> TLVResult<Signature> {
             sign_type: stream[VALUE_OFFSET + 1],
             signature: Box::new(&stream[VALUE_OFFSET + 2..VALUE_OFFSET + frame_len]),
         };
-        if !signature.is_valid() {
+        if signature.is_valid().is_err() {
             Err(TLVError(format!(
                 "Signature information is not valid: {:?} ",
-                signature
+                signature.is_valid().unwrap_err()
             )))
         } else {
             Ok(TLVDeserializeOk::<Signature> {
@@ -403,16 +435,25 @@ fn deserialize_compression(stream: &[u8]) -> TLVResult<Compression> {
             compression_type
         )));
     }
-    let compressed_data = Box::new(&stream[VALUE_OFFSET + 5..VALUE_OFFSET + frame_len]);
-    let compression = Compression {
+    let mut compression = Compression {
         compression_type,
         uncompressed_size,
-        data: compressed_data,
+        data: Box::new(b""),
     };
-    Ok(TLVDeserializeOk::<Compression> {
-        bytes: VALUE_OFFSET + frame_len,
-        result: compression,
-    })
+    if compression.is_valid().is_err() {
+        Err(TLVError(format!(
+            "Compression frame is not valid: {:?} ",
+            compression.is_valid().unwrap_err()
+        )))
+    } else {
+        // Decompression step goes here...
+        let decompressed_data = Box::new(&stream[VALUE_OFFSET + 5..VALUE_OFFSET + frame_len]);
+        compression.data = decompressed_data;
+        Ok(TLVDeserializeOk::<Compression> {
+            bytes: VALUE_OFFSET + frame_len,
+            result: compression,
+        })
+    }
 }
 
 //=====================================================================
@@ -718,12 +759,13 @@ mod tests {
     fn test_signature() {
         let stream = &mut Vec::new();
         let test_data = Signature {
-            sign_provider: 1,
-            sign_type: 42,
+            sign_provider: 0,
+            sign_type: 0,
             signature: Box::new(b"Ford Prefect"),
         };
         serialize_signature(stream, 1, &test_data);
         let result = deserialize_signature(&stream);
+        println!("{:?}", result);
         assert!(result.is_ok());
         let unwrapped = result.unwrap();
         assert_eq!(unwrapped.result, test_data);
