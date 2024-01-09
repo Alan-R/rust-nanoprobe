@@ -40,7 +40,7 @@ extern "C" {
 
 #[cfg(target_family = "unix")]
 /// Converts a list of UNIX capability names into a CapHashSet as needed by RestrictCaps below
-/// These capability names can be non-canonical names as required by the caps crate.
+/// These capability names can be non-canonical names as defined by the caps crate.
 /// # Arguments
 /// * 'cap_list': a String iterator
 /// # Examples:
@@ -59,7 +59,7 @@ fn cap_list_to_capset(
 #[cfg(target_family = "unix")]
 /// A trait for restricting capabilities on **Command**s being executed.
 pub trait RestrictCaps {
-    fn restrict_caps<'a>(&mut self, cap_set: CapsHashSet) -> &mut Command;
+    fn restrict_caps(&mut self, cap_set: CapsHashSet) -> &mut Command;
 }
 
 #[cfg(target_family = "unix")]
@@ -74,7 +74,7 @@ impl RestrictCaps for Command {
     /// * 'self' - Our self Command object
     /// * 'cap_set' - a CapsHashSet of the capabilities we want to have in our child process
     ///               possibly coming from cap_list_to_capset() above.
-    fn restrict_caps<'a>(self: &mut Command, cap_set: CapsHashSet) -> &mut Command {
+    fn restrict_caps(self: &mut Command, cap_set: CapsHashSet) -> &mut Command {
         unsafe {
             self.pre_exec(move || {
                 // Remove unwanted capabilities
@@ -105,11 +105,6 @@ impl RestrictCaps for Command {
                             }
                         }
                     }
-                    println!(
-                        "Final {:?} caps: {:?}",
-                        capability_set,
-                        caps::read(None, capability_set).unwrap()
-                    );
                 }
                 Ok(())
             });
@@ -149,12 +144,6 @@ impl SetId for Command {
     fn set_id_keep(self: &mut Command, uid: uid_t, gid: gid_t) -> &mut Command {
         unsafe {
             self.pre_exec(move || {
-                println!(
-                    "set_id_keep: Effective caps {:?}:{:?} => {:?}",
-                    uid,
-                    gid,
-                    caps::read(None, CapSet::Effective).unwrap()
-                );
                 // TODO: log failures
                 _ = setgid(gid);
                 _ = set_keepcaps(true); // Must do this before the call to setuid below.
@@ -192,7 +181,7 @@ pub struct ResourceLimit {
 /// # Arguments
 /// * 'str_limit' - the incoming StrResourceLimit object
 /// # Examples:
-fn str_resource_to_resource_limit<'a>(str_limit: &StrResourceLimit) -> io::Result<ResourceLimit> {
+fn str_resource_to_resource_limit(str_limit: &StrResourceLimit) -> io::Result<ResourceLimit> {
     match Resource::from_str(&*str_limit.resource_type) {
         Err(_) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -267,7 +256,6 @@ impl SetLimits for Command {
         unsafe {
             self.pre_exec(move || {
                 for limit in limit_list.iter() {
-                    println!("Limit name: {:?}", limit.resource_type);
                     let limit_check = getrlimit(limit.resource_type);
                     match limit_check {
                         Ok(current) => {
@@ -282,9 +270,8 @@ impl SetLimits for Command {
                             // TODO: log failures
                             _ = setrlimit(limit.resource_type, soft, hard)
                         }
-                        Err(oops) => {
+                        Err(_oops) => {
                             // TODO: log failures
-                            println!("BAD: {:?}", oops);
                         }
                     }
                 }
