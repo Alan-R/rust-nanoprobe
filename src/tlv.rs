@@ -31,29 +31,62 @@ type TLVResult<T> = Result<TLVDeserializeOk<T>, TLVError>;
 type TlvType = u16; // Type of the TLV 'type' field
 type TlvLen = u32; // Type of the TLV 'length' field
 
-// Effectively, all our TLV objects start with a Type and a Length field, conceptually looking like this...
-// But because everything is in network byte order, this struct isn't useful in the Rust code.
-// struct TLVPrefix {
-//    itype: TlvType, // But in "network byte order"
-//    ilen: TlvLen, // But in "network byte order"
-// }
+/// Effectively, all our TLV objects start with a Type and a Length field, conceptually looking like this...
+/// But because everything is in network byte order, this struct isn't useful in the Rust code.
+/// struct TLVPrefix {
+///    itype: TlvType, // But in "network byte order"
+///    ilen: TlvLen, // But in "network byte order"
+/// }
+/// We don't put any padding between items on the wire, since in most cases we have to
+/// convert from network byte order to local byte order. This also means we don't care about local compiler
+/// and hardware conventions about padding and alignment.
 
 // Offset to the beginning of the Value
 const VALUE_OFFSET: usize = size_of::<TlvType>() + size_of::<TlvLen>();
 // Offset to the beginning of the Length field
 const LEN_OFFSET: usize = size_of::<TlvType>();
 
+#[derive(Debug, PartialEq)]
+/// Sequence numbers include sessionid to make replay attacks difficult.
+/// Session IDs are incremented each time an endpoint restarts.
 struct SequenceNumber {
     reqid: u64,     // The sequence number for this session and queue.
     sessionid: u32, // The session id for this queue. Incremented each time the protocol restarts.
     qid: u16, // Allows for more than one communication stream between endpoints. Not sure it's needed...
 }
+// There is no extra padding on the wire after the end of the data in a SequenceNumber object.
+const SEQNO_LEN: usize = size_of::<u64>() + size_of::<u32>() + size_of::<u16>(); // No padding at the end!
+/// Digital signature frame
+#[derive(Debug, PartialEq)]
+struct Signature<'a> {
+    sign_provider: u8,
+    sign_type: u8,
+    signature: Box<&'a [u8]>,
+}
+const SIGNATURE_FRAME_TYPE: u16 = 1;
+const MIN_SIGNATURE_LEN: usize = 3 * size_of::<u8>();
+impl Signature<'_> {
+    fn is_valid(&self) -> bool {
+        true
+    }
+}
+#[derive(Debug, PartialEq)]
+struct Compression<'a> {
+    uncompressed_size: u32,
+    compression_type: u8,
+    data: Box<&'a [u8]>,
+}
 
+//=====================================================================
+//
+//  De-serialization code starts below
+//  We take data out of a packet, and transform it back to in-memory data
+//
+//=====================================================================
+
+#[inline]
 fn get_tlv_len(stream: &[u8]) -> usize {
-    (((stream[3 + LEN_OFFSET] as u32) << 24)        // Not quite a duplicate of deserialize_u32
-        + ((stream[2 + LEN_OFFSET] as u32) << 16)
-        + ((stream[1 + LEN_OFFSET] as u32) << 8)
-        + stream[0 + LEN_OFFSET] as u32) as usize
+    deserialize_u32_raw(&stream[LEN_OFFSET..LEN_OFFSET + 4]) as usize
 }
 fn deserialize_u8(stream: &[u8]) -> TLVResult<u8> {
     if stream.len() < VALUE_OFFSET + size_of::<u8>() {
@@ -290,12 +323,13 @@ fn deserialize_cstring(stream: &[u8]) -> TLVResult<String> {
 }
 
 fn deserialize_seqno(stream: &[u8]) -> TLVResult<SequenceNumber> {
-    if stream.len() < VALUE_OFFSET + size_of::<SequenceNumber>() {
+    if stream.len() < VALUE_OFFSET + SEQNO_LEN {
         Err(TLVError(format!(
-            "stream too short for SequenceNumber: {}",
-            stream.len()
+            "stream too short for SequenceNumber: {} vs {}",
+            stream.len(),
+            SEQNO_LEN
         )))
-    } else if get_tlv_len(stream) != size_of::<SequenceNumber>() {
+    } else if get_tlv_len(stream) != SEQNO_LEN {
         Err(TLVError(format!(
             "TLV length {} incorrect for SequenceNumber",
             get_tlv_len(stream),
@@ -303,7 +337,7 @@ fn deserialize_seqno(stream: &[u8]) -> TLVResult<SequenceNumber> {
     } else {
         // Something goes here...
         Ok(TLVDeserializeOk::<SequenceNumber> {
-            bytes: VALUE_OFFSET + size_of::<SequenceNumber>(),
+            bytes: VALUE_OFFSET + SEQNO_LEN,
             result: SequenceNumber {
                 reqid: deserialize_u64_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 8]),
                 sessionid: deserialize_u32_raw(&stream[VALUE_OFFSET + 8..VALUE_OFFSET + 12]),
@@ -312,6 +346,83 @@ fn deserialize_seqno(stream: &[u8]) -> TLVResult<SequenceNumber> {
         })
     }
 }
+fn deserialize_signature(stream: &[u8]) -> TLVResult<Signature> {
+    if stream.len() < VALUE_OFFSET + MIN_SIGNATURE_LEN {
+        return Err(TLVError(format!(
+            "stream too short for Signature: {} vs {}",
+            stream.len(),
+            MIN_SIGNATURE_LEN
+        )));
+    }
+    let frame_type = deserialize_u16_raw(&stream[0..2]);
+    let frame_len = deserialize_u32_raw(&stream[2..6]) as usize;
+    if frame_type != SIGNATURE_FRAME_TYPE {
+        Err(TLVError(format!(
+            "Signature frame type incorrect: must be {} instead of {}",
+            SIGNATURE_FRAME_TYPE, frame_type
+        )))
+    } else {
+        let signature = Signature {
+            sign_provider: stream[VALUE_OFFSET],
+            sign_type: stream[VALUE_OFFSET + 1],
+            signature: Box::new(&stream[VALUE_OFFSET + 2..VALUE_OFFSET + frame_len]),
+        };
+        if !signature.is_valid() {
+            Err(TLVError(format!(
+                "Signature information is not valid: {:?} ",
+                signature
+            )))
+        } else {
+            Ok(TLVDeserializeOk::<Signature> {
+                bytes: VALUE_OFFSET + frame_len,
+                result: signature,
+            })
+        }
+    }
+}
+
+fn deserialize_compression(stream: &[u8]) -> TLVResult<Compression> {
+    // Right now, we only support stupid, do-nothing compression (compression type 0).
+    if stream.len() < VALUE_OFFSET + size_of::<Compression>() {
+        return Err(TLVError(format!(
+            "stream too short for Compression frame: {}",
+            stream.len(),
+        )));
+    }
+    let frame_len = deserialize_u32_raw(&stream[LEN_OFFSET..LEN_OFFSET + 4]) as usize;
+    let uncompressed_size = deserialize_u32_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 4]);
+    let compression_type = stream[VALUE_OFFSET + 4];
+    if compression_type != 0 {
+        return Err(TLVError(format!(
+            "unsupported compression type: {}",
+            compression_type
+        )));
+    } else if uncompressed_size != (frame_len - 5) as u32 {
+        return Err(TLVError(format!(
+            "unsupported compression type: {}",
+            compression_type
+        )));
+    }
+    let compressed_data = Box::new(&stream[VALUE_OFFSET + 5..VALUE_OFFSET + frame_len]);
+    let compression = Compression {
+        compression_type,
+        uncompressed_size,
+        data: compressed_data,
+    };
+    Ok(TLVDeserializeOk::<Compression> {
+        bytes: VALUE_OFFSET + frame_len,
+        result: compression,
+    })
+}
+
+//=====================================================================
+//
+//  Serialization code starts below.
+//  We take data from an in-memory form to a serialized form suitable
+//  for putting in a packet.
+//
+//=====================================================================
+
 fn serialize_u16_raw(stream: &mut Vec<u8>, data: u16) {
     for item in [(data & 0xff) as u8, (data >> 8) as u8] {
         stream.push(item);
@@ -384,7 +495,6 @@ fn serialize_u64(stream: &mut Vec<u8>, itype: u16, item: u64) {
 fn serialize_ipv4(stream: &mut Vec<u8>, itype: u16, item: Ipv4Addr) {
     serialize_u16_raw(stream, itype);
     serialize_u32_raw(stream, size_of::<Ipv4Addr>() as u32);
-    println!("V4 len: {}", item.octets().len());
     for octet in item.octets() {
         stream.push(octet);
     }
@@ -413,6 +523,36 @@ fn serialize_cstring(stream: &mut Vec<u8>, itype: u16, item: &String) {
     }
     stream.push(0x00);
 }
+fn serialize_seqno(stream: &mut Vec<u8>, itype: u16, item: &SequenceNumber) {
+    serialize_u16_raw(stream, itype);
+    serialize_u32_raw(stream, SEQNO_LEN as u32);
+    serialize_u64_raw(stream, item.reqid);
+    serialize_u32_raw(stream, item.sessionid);
+    serialize_u16_raw(stream, item.qid);
+}
+fn serialize_signature(stream: &mut Vec<u8>, itype: u16, item: &Signature) {
+    serialize_u16_raw(stream, itype);
+    let len = size_of::<u8>() + size_of::<u8>() + item.signature.len();
+    serialize_u32_raw(stream, len as u32);
+    stream.push(item.sign_provider);
+    stream.push(item.sign_type);
+    stream.append(&mut item.signature.to_vec());
+}
+fn serialize_compression(stream: &mut Vec<u8>, itype: u16, item: &Compression) {
+    serialize_u16_raw(stream, itype);
+    let len = size_of::<u8>() + size_of::<u32>() + item.data.len();
+    serialize_u32_raw(stream, len as u32);
+    // Should be zero until we implement compression
+    serialize_u32_raw(stream, item.uncompressed_size);
+    stream.push(item.compression_type);
+    // We should append the compressed data instead of the uncompressed data...
+    stream.append(&mut item.data.to_vec());
+}
+//=====================================================================
+//
+//  Unit tests start below
+//
+//=====================================================================
 
 #[cfg(test)]
 // Should these be UNIX-only tests and have a different mod for non-UNIX specific tests?
@@ -557,5 +697,52 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.expect_err("REASON").to_string();
         assert_eq!(err_msg, "TLV error: Cstring not NULL-terminated");
+    }
+    #[test]
+    fn test_seqno() {
+        let stream = &mut Vec::new();
+        let test_data = SequenceNumber {
+            reqid: 60223,
+            sessionid: 31415,
+            qid: 42,
+        };
+        serialize_seqno(stream, 1, &test_data);
+        let result = deserialize_seqno(&stream);
+        // assert!(result.is_ok());
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len());
+        assert_eq!(unwrapped.bytes, VALUE_OFFSET + SEQNO_LEN);
+    }
+    #[test]
+    fn test_signature() {
+        let stream = &mut Vec::new();
+        let test_data = Signature {
+            sign_provider: 1,
+            sign_type: 42,
+            signature: Box::new(b"Ford Prefect"),
+        };
+        serialize_signature(stream, 1, &test_data);
+        let result = deserialize_signature(&stream);
+        assert!(result.is_ok());
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len());
+    }
+    #[test]
+    fn test_compression() {
+        let stream = &mut Vec::new();
+        let data = b"Zaphod Beeblebrox";
+        let test_data = Compression {
+            compression_type: 0,
+            uncompressed_size: data.len() as u32,
+            data: Box::new(data),
+        };
+        serialize_compression(stream, 1, &test_data);
+        let result = deserialize_compression(&stream);
+        assert!(result.is_ok());
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_data);
+        assert_eq!(unwrapped.bytes, stream.len());
     }
 }
