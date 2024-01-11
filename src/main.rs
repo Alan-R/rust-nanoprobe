@@ -11,6 +11,7 @@
  *
  */
 use crate::run::{CommandSpecification, StrResourceLimit};
+mod addresses;
 pub mod run;
 pub mod tlv;
 

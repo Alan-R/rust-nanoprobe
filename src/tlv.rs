@@ -1,6 +1,7 @@
 // use serde_json::Value;
+use crate::addresses::AddressFamily;
 use std::mem::size_of;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::string::String;
 use thiserror::Error;
 
@@ -45,14 +46,6 @@ type TlvLen = u32; // Type of the TLV 'length' field
 const VALUE_OFFSET: usize = size_of::<TlvType>() + size_of::<TlvLen>();
 // Offset to the beginning of the Length field
 const LEN_OFFSET: usize = size_of::<TlvType>();
-#[derive(Copy, Clone)]
-// From https://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
-enum AddressFamily {
-    Ipv4 = 1,
-    Ipv6 = 2,
-    Mac48 = 16389,
-    Mac64 = 16390,
-}
 
 #[derive(Debug, PartialEq)]
 /// Sequence numbers include session id to make replay attacks difficult.
@@ -248,6 +241,16 @@ fn deserialize_u64(stream: &[u8]) -> TLVResult<u64> {
         })
     }
 }
+fn deserialize_ipv4_raw(stream: &[u8]) -> Ipv4Addr {
+    Ipv4Addr::from([stream[0], stream[1], stream[2], stream[3]])
+}
+fn deserialize_ipv6_raw(stream: &[u8]) -> Ipv6Addr {
+    Ipv6Addr::from([
+        stream[0], stream[1], stream[2], stream[3], stream[4], stream[5], stream[6], stream[7],
+        stream[8], stream[9], stream[10], stream[11], stream[12], stream[13], stream[14],
+        stream[15],
+    ])
+}
 
 fn deserialize_ipv4(stream: &[u8]) -> TLVResult<Ipv4Addr> {
     if stream.len() < VALUE_OFFSET + size_of::<Ipv4Addr>() + 4 {
@@ -256,13 +259,6 @@ fn deserialize_ipv4(stream: &[u8]) -> TLVResult<Ipv4Addr> {
             stream.len(),
         )));
     } else {
-        let port = deserialize_u16_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 2]);
-        if port != 0 {
-            return Err(TLVError(format!(
-                "IPv4 address has non-zero port: {}",
-                port
-            )));
-        }
         let address_family = deserialize_u16_raw(&stream[VALUE_OFFSET + 2..VALUE_OFFSET + 4]);
         if address_family != AddressFamily::Ipv4 as u16 {
             return Err(TLVError(format!(
@@ -277,15 +273,9 @@ fn deserialize_ipv4(stream: &[u8]) -> TLVResult<Ipv4Addr> {
             get_tlv_len(stream)
         )))
     } else {
-        let octets: [u8; 4] = [
-            stream[VALUE_OFFSET + 4],
-            stream[VALUE_OFFSET + 5],
-            stream[VALUE_OFFSET + 6],
-            stream[VALUE_OFFSET + 7],
-        ];
         Ok(TLVDeserializeOk::<Ipv4Addr> {
             bytes: VALUE_OFFSET + size_of::<Ipv4Addr>() + 4,
-            result: Ipv4Addr::from(octets),
+            result: deserialize_ipv4_raw(&stream[VALUE_OFFSET + 4..VALUE_OFFSET + 8]),
         })
     }
 }
@@ -297,13 +287,6 @@ fn deserialize_ipv6(stream: &[u8]) -> TLVResult<Ipv6Addr> {
             stream.len(),
         )));
     } else {
-        let port = deserialize_u16_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 2]);
-        if port != 0 {
-            return Err(TLVError(format!(
-                "IPv6 address has non-zero port: {}",
-                port
-            )));
-        }
         let address_family = deserialize_u16_raw(&stream[VALUE_OFFSET + 2..VALUE_OFFSET + 4]);
         if address_family != AddressFamily::Ipv6 as u16 {
             return Err(TLVError(format!(
@@ -321,25 +304,42 @@ fn deserialize_ipv6(stream: &[u8]) -> TLVResult<Ipv6Addr> {
     } else {
         Ok(TLVDeserializeOk::<Ipv6Addr> {
             bytes: VALUE_OFFSET + size_of::<Ipv6Addr>() + 4,
-            result: Ipv6Addr::from([
-                stream[VALUE_OFFSET + 4],
-                stream[VALUE_OFFSET + 5],
-                stream[VALUE_OFFSET + 6],
-                stream[VALUE_OFFSET + 7],
-                stream[VALUE_OFFSET + 8],
-                stream[VALUE_OFFSET + 9],
-                stream[VALUE_OFFSET + 10],
-                stream[VALUE_OFFSET + 11],
-                stream[VALUE_OFFSET + 12],
-                stream[VALUE_OFFSET + 13],
-                stream[VALUE_OFFSET + 14],
-                stream[VALUE_OFFSET + 15],
-                stream[VALUE_OFFSET + 16],
-                stream[VALUE_OFFSET + 17],
-                stream[VALUE_OFFSET + 18],
-                stream[VALUE_OFFSET + 19],
-            ]),
+            result: deserialize_ipv6_raw(&stream[VALUE_OFFSET + 4..VALUE_OFFSET + 20]),
         })
+    }
+}
+
+fn deserialize_socketaddr(stream: &[u8]) -> TLVResult<SocketAddr> {
+    if stream.len() < VALUE_OFFSET + size_of::<Ipv4Addr>() + 4 {
+        return Err(TLVError(format!(
+            "stream too short for SocketAddr: {}",
+            stream.len()
+        )));
+    } else {
+        let port = deserialize_u16_raw(&stream[VALUE_OFFSET..VALUE_OFFSET + 2]);
+        let address_family = deserialize_u16_raw(&stream[VALUE_OFFSET + 2..VALUE_OFFSET + 4]);
+        if address_family == AddressFamily::Ipv4 as u16 {
+            match deserialize_ipv4(stream) {
+                Err(oops) => Err(oops),
+                Ok(v4) => Ok(TLVDeserializeOk::<SocketAddr> {
+                    bytes: v4.bytes,
+                    result: SocketAddr::V4(SocketAddrV4::new(v4.result, port)),
+                }),
+            }
+        } else if address_family == AddressFamily::Ipv6 as u16 {
+            match deserialize_ipv6(stream) {
+                Err(oops) => Err(oops),
+                Ok(v6) => Ok(TLVDeserializeOk::<SocketAddr> {
+                    bytes: v6.bytes,
+                    result: SocketAddr::V6(SocketAddrV6::new(v6.result, port, 0, 0)),
+                }),
+            }
+        } else {
+            Err(TLVError(format!(
+                "unsupported SocketAddr address family: {}",
+                address_family
+            )))
+        }
     }
 }
 
@@ -353,25 +353,21 @@ fn deserialize_ipaddr(stream: &[u8]) -> TLVResult<IpAddr> {
     let address_family = deserialize_u16_raw(&stream[VALUE_OFFSET + 2..VALUE_OFFSET + 4]);
     if address_family == AddressFamily::Ipv6 as u16 {
         let maybe = deserialize_ipv6(stream);
-        if maybe.is_ok() {
-            let result = maybe.unwrap();
-            Ok(TLVDeserializeOk::<IpAddr> {
+        match maybe {
+            Ok(result) => Ok(TLVDeserializeOk::<IpAddr> {
                 bytes: result.bytes,
                 result: IpAddr::V6(result.result),
-            })
-        } else {
-            Err(maybe.unwrap_err())
+            }),
+            Err(_) => Err(maybe.unwrap_err()),
         }
     } else if address_family == AddressFamily::Ipv4 as u16 {
         let maybe = deserialize_ipv4(stream);
-        if maybe.is_ok() {
-            let result = maybe.unwrap();
-            Ok(TLVDeserializeOk::<IpAddr> {
+        match maybe {
+            Ok(result) => Ok(TLVDeserializeOk::<IpAddr> {
                 bytes: result.bytes,
                 result: IpAddr::V4(result.result),
-            })
-        } else {
-            Err(maybe.unwrap_err())
+            }),
+            Err(_) => Err(maybe.unwrap_err()),
         }
     } else {
         Err(TLVError(format!(
@@ -663,29 +659,42 @@ fn serialize_u64(stream: &mut Vec<u8>, itype: u16, item: u64) {
     serialize_u64_raw(stream, item);
 }
 
-fn serialize_ipv4(stream: &mut Vec<u8>, itype: u16, item: Ipv4Addr) {
+fn serialize_ipv4_w_port(stream: &mut Vec<u8>, itype: u16, item: Ipv4Addr, port: u16) {
     serialize_u16_raw(stream, itype);
     serialize_u32_raw(stream, size_of::<Ipv4Addr>() as u32 + 4);
-    serialize_u16_raw(stream, 0x0000u16); // port
+    serialize_u16_raw(stream, port); // port
     serialize_u16_raw(stream, AddressFamily::Ipv4 as u16); // Address family
     for octet in item.octets() {
         stream.push(octet);
     }
 }
-fn serialize_ipv6(stream: &mut Vec<u8>, itype: u16, item: Ipv6Addr) {
+fn serialize_ipv4(stream: &mut Vec<u8>, itype: u16, item: Ipv4Addr) {
+    serialize_ipv4_w_port(stream, itype, item, 0x00u16)
+}
+fn serialize_ipv6_w_port(stream: &mut Vec<u8>, itype: u16, item: Ipv6Addr, port: u16) {
     serialize_u16_raw(stream, itype); // Type
     serialize_u32_raw(stream, size_of::<Ipv6Addr>() as u32 + 4); // Length
-    serialize_u16_raw(stream, 0x0000u16); // port
+    serialize_u16_raw(stream, port);
     serialize_u16_raw(stream, AddressFamily::Ipv6 as u16); // Address family
     for octet in item.octets() {
         stream.push(octet);
     }
+}
+fn serialize_ipv6(stream: &mut Vec<u8>, itype: u16, item: Ipv6Addr) {
+    serialize_ipv6_w_port(stream, itype, item, 0x00u16)
 }
 
 fn serialize_ipaddr(stream: &mut Vec<u8>, itype: u16, item: IpAddr) {
     match item {
         IpAddr::V4(v4) => serialize_ipv4(stream, itype, v4),
         IpAddr::V6(v6) => serialize_ipv6(stream, itype, v6),
+    }
+}
+
+fn serialize_socketaddr(stream: &mut Vec<u8>, itype: u16, item: SocketAddr) {
+    match item.ip() {
+        IpAddr::V4(v4) => serialize_ipv4_w_port(stream, itype, v4, item.port()),
+        IpAddr::V6(v6) => serialize_ipv6_w_port(stream, itype, v6, item.port()),
     }
 }
 
@@ -821,11 +830,9 @@ mod tests {
             IpAddr::V4(addr) => {
                 serialize_ipv4(stream, 1, addr);
                 let result = deserialize_ipv4(&stream);
-                println!("{:?}", result);
                 assert!(result.is_ok());
                 assert_eq!(result.unwrap().result, addr);
                 let result = deserialize_ipaddr(&stream);
-                println!("{:?}", result);
                 assert!(result.is_ok());
                 let unwrapped = result.unwrap();
                 assert_eq!(unwrapped.result, addr);
@@ -863,13 +870,28 @@ mod tests {
 
         serialize_ipaddr(stream, 1, test_addr);
         let result = deserialize_ipv6(&stream);
-        println!("{:?}", result);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().result, test_addr);
         let result = deserialize_ipv6(&stream);
         assert!(result.is_ok());
         let unwrapped = result.unwrap();
         assert_eq!(IpAddr::V6(unwrapped.result), test_addr);
+        assert_eq!(unwrapped.bytes, stream.len());
+        assert_eq!(unwrapped.bytes, VALUE_OFFSET + 20);
+    }
+    #[test]
+    fn test_socketaddr() {
+        let stream = &mut Vec::new();
+        let test_addr = SocketAddr::from_str("[2000::1:2:3]:42").unwrap();
+
+        serialize_socketaddr(stream, 1, test_addr);
+        let result = deserialize_socketaddr(&stream);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().result, test_addr);
+        let result = deserialize_socketaddr(&stream);
+        assert!(result.is_ok());
+        let unwrapped = result.unwrap();
+        assert_eq!(unwrapped.result, test_addr);
         assert_eq!(unwrapped.bytes, stream.len());
         assert_eq!(unwrapped.bytes, VALUE_OFFSET + 20);
     }

@@ -30,7 +30,6 @@ use rlimit::{getrlimit, setrlimit, Resource};
 #[cfg(target_family = "unix")]
 use users::{get_group_by_name, get_user_by_name, gid_t, uid_t};
 #[cfg(target_family = "unix")]
-#[cfg(target_family = "unix")]
 extern "C" {
     fn setuid(uid: uid_t) -> c_int;
     fn setgid(gid: gid_t) -> c_int;
