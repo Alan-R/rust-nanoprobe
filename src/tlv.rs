@@ -1,5 +1,5 @@
 // use serde_json::Value;
-use crate::addresses::AddressFamily;
+use crate::addresses::{AddressFamily, IsAnAddress};
 use std::mem::size_of;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::string::String;
@@ -663,7 +663,7 @@ fn serialize_ipv4_w_port(stream: &mut Vec<u8>, itype: u16, item: Ipv4Addr, port:
     serialize_u16_raw(stream, itype);
     serialize_u32_raw(stream, size_of::<Ipv4Addr>() as u32 + 4);
     serialize_u16_raw(stream, port); // port
-    serialize_u16_raw(stream, AddressFamily::Ipv4 as u16); // Address family
+    serialize_u16_raw(stream, item.addr_family() as u16); // Address family
     for octet in item.octets() {
         stream.push(octet);
     }
@@ -675,7 +675,7 @@ fn serialize_ipv6_w_port(stream: &mut Vec<u8>, itype: u16, item: Ipv6Addr, port:
     serialize_u16_raw(stream, itype); // Type
     serialize_u32_raw(stream, size_of::<Ipv6Addr>() as u32 + 4); // Length
     serialize_u16_raw(stream, port);
-    serialize_u16_raw(stream, AddressFamily::Ipv6 as u16); // Address family
+    serialize_u16_raw(stream, item.addr_family() as u16); // Address family
     for octet in item.octets() {
         stream.push(octet);
     }
